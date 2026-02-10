@@ -2,9 +2,9 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: demo
-      POSTGRES_USER: demo
-      POSTGRES_PASSWORD: demo_pwd
+      POSTGRES_DB: notesdb
+      POSTGRES_USER: notes
+      POSTGRES_PASSWORD: notes_pwd
     ports:
       - "5432:5432"
     volumes:
@@ -13,9 +13,9 @@ services:
   api:
     build: .
     environment:
-      DB_URL: jdbc:postgresql://db:5432/demo
-      DB_USER: demo
-      DB_PASSWORD: demo_pwd
+      DB_URL: jdbc:postgresql://db:5432/notesdb
+      DB_USER: notes
+      DB_PASSWORD: notes_pwd
     ports:
       - "8080:8080"
     depends_on:

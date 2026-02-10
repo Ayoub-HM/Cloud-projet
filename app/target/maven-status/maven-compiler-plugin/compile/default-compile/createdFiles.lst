@@ -1,0 +1,5 @@
+com/demo/notes/NotesApiApplication.class
+com/demo/notes/note/NoteController.class
+com/demo/notes/note/Note.class
+com/demo/notes/note/NoteCreateRequest.class
+com/demo/notes/note/NoteRepository.class

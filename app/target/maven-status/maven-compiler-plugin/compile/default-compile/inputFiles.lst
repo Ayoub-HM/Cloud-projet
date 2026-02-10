@@ -1,0 +1,5 @@
+/workspace/app/src/main/java/com/demo/notes/NotesApiApplication.java
+/workspace/app/src/main/java/com/demo/notes/note/Note.java
+/workspace/app/src/main/java/com/demo/notes/note/NoteController.java
+/workspace/app/src/main/java/com/demo/notes/note/NoteCreateRequest.java
+/workspace/app/src/main/java/com/demo/notes/note/NoteRepository.java
