@@ -1,0 +1,11 @@
+body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:24px;background:#f7f8fa;color:#111}
+main{max-width:800px;margin:0 auto}
+h1{margin-bottom:12px}
+.create input,.create textarea{display:block;width:100%;padding:8px;margin-bottom:8px;border:1px solid #ddd;border-radius:4px}
+.create button{padding:8px 12px;border-radius:4px}
+.notes-list{list-style:none;padding:0;margin-top:16px}
+.note{background:#fff;border:1px solid #e6e6e6;padding:12px;border-radius:6px;margin-bottom:8px}
+.note h3{margin:0 0 6px 0}
+.note p{margin:0 0 8px 0}
+.note .delete{background:#e53e3e;color:#fff;border:none;padding:6px 8px;border-radius:4px}
+.empty{color:#666}
