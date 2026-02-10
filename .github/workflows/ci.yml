@@ -8,16 +8,35 @@ on:
 jobs:
   build_test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: notesdb
+          POSTGRES_USER: notes
+          POSTGRES_PASSWORD: notes_pwd
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U notes -d notesdb"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Java 17
+
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Build & test
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/notesdb
+          DB_USER: notes
+          DB_PASSWORD: notes_pwd
         run: mvn -f app/pom.xml -q test package
 
   docker_build_push:
@@ -43,7 +62,3 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/notes-api:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/notes-api:${{ github.sha }}
