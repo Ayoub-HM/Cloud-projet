@@ -4,113 +4,171 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>MediSante+ | Telemedecine en France</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <main class="layout">
-    <p id="modeBadge" class="mode-badge hidden"></p>
-
-    <header class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">Plateforme de telemedecine</p>
-        <h1 id="companyTitle">MediSante+</h1>
-        <p id="companyStory" class="lead"></p>
-        <p id="companyOverview" class="sublead"></p>
-        <div class="stats">
-          <article class="stat-card">
-            <p class="stat-label">Annee de creation</p>
-            <p id="foundedYear" class="stat-value">-</p>
-          </article>
-          <article class="stat-card">
-            <p class="stat-label">Collaborateurs</p>
-            <p id="employees" class="stat-value">-</p>
-          </article>
+  <div class="app-shell">
+    <aside class="side-panel">
+      <div class="brand">
+        <div class="brand-logo">
+          <span class="cross cross-h"></span>
+          <span class="cross cross-v"></span>
         </div>
-      </div>
-      <div class="hero-media">
-        <img id="heroImage" src="" alt="Equipe medicale en teleconsultation" loading="eager" />
-      </div>
-    </header>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Fonctionnalites de la plateforme</h2>
-      </div>
-      <div id="services" class="grid"></div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Implantations en France</h2>
-      </div>
-      <div id="offices" class="grid"></div>
-    </section>
-
-    <section class="panel tele-panel">
-      <div class="panel-head tele-head">
         <div>
-          <h2>Prendre un rendez-vous de teleconsultation</h2>
-          <p>Chaque valeur saisie est enregistree en base et affichee dans le tableau de suivi.</p>
+          <p class="brand-sub">MediSante</p>
+          <p class="brand-title">Control Center</p>
         </div>
-        <article class="tele-kpi">
-          <p class="tele-kpi-label">Rendez-vous en base</p>
-          <p id="appointmentCount" class="tele-kpi-value">0</p>
-        </article>
       </div>
 
-      <form id="teleForm" class="tele-form" novalidate>
-        <label class="form-field">
-          <span>Nom du patient</span>
-          <input id="patientName" name="patientName" placeholder="Ex: Sara Martin" autocomplete="name" required />
-        </label>
-        <label class="form-field">
-          <span>Medecin souhaite</span>
-          <input id="doctorName" name="doctorName" placeholder="Ex: Dr Nadia Benali" required />
-        </label>
-        <label class="form-field">
-          <span>Specialite</span>
-          <input id="speciality" name="speciality" placeholder="Ex: Medecine generale" required />
-        </label>
-        <label class="form-field">
-          <span>Date et heure</span>
-          <input id="scheduledAt" name="scheduledAt" type="datetime-local" required />
-        </label>
-        <label class="form-field full">
-          <span>Motif</span>
-          <textarea id="reason" name="reason" rows="3" placeholder="Ex: Suivi post-consultation" required></textarea>
-        </label>
-        <div class="form-actions">
-          <button id="submitButton" type="submit">Demander une teleconsultation</button>
+      <nav class="side-nav">
+        <button class="nav-btn active" type="button"><i class="bi bi-speedometer2"></i> Dashboard</button>
+        <button class="nav-btn" type="button"><i class="bi bi-people"></i> Patients</button>
+        <button class="nav-btn" type="button"><i class="bi bi-calendar-week"></i> Agenda</button>
+        <button class="nav-btn" type="button"><i class="bi bi-chat-left-dots"></i> Messages</button>
+        <button class="nav-btn" type="button"><i class="bi bi-cash-stack"></i> Facturation</button>
+        <button class="nav-btn" type="button"><i class="bi bi-shield-check"></i> Securite</button>
+      </nav>
+
+      <div class="side-footer">
+        <p>Modules visuels ajoutes, connexion backend active.</p>
+      </div>
+    </aside>
+
+    <div class="main-stage">
+      <header class="task-bar">
+        <div class="task-bar-left">
+          <h1>Plateforme de telemedecine</h1>
+          <p>Pilotage des teleconsultations, suivi et operations.</p>
         </div>
-      </form>
+        <div class="task-bar-right">
+          <span class="status-dot"></span>
+          <span>Systeme en ligne</span>
+        </div>
+      </header>
 
-      <p id="teleMessage" class="tele-message"></p>
+      <main class="layout">
+        <p id="modeBadge" class="mode-badge hidden"></p>
 
-      <div class="panel-head panel-subhead">
-        <h3>Rendez-vous planifies</h3>
-      </div>
-      <div class="table-wrap">
-        <table class="appointments-table" aria-label="Rendez-vous planifies">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Patient</th>
-              <th>Medecin</th>
-              <th>Specialite</th>
-              <th>Date et heure</th>
-              <th>Motif</th>
-              <th>Statut</th>
-            </tr>
-          </thead>
-          <tbody id="appointmentsBody"></tbody>
-        </table>
-        <p id="appointmentsEmpty" class="empty-state hidden">Aucun rendez-vous planifie pour le moment.</p>
-      </div>
-    </section>
-  </main>
+        <section class="hero">
+          <div class="hero-copy">
+            <p class="eyebrow">Plateforme de telemedecine</p>
+            <h2 id="companyTitle">MediSante+</h2>
+            <p id="companyStory" class="lead"></p>
+            <p id="companyOverview" class="sublead"></p>
+            <div class="stats">
+              <article class="stat-card">
+                <p class="stat-label">Annee de creation</p>
+                <p id="foundedYear" class="stat-value">-</p>
+              </article>
+              <article class="stat-card">
+                <p class="stat-label">Collaborateurs</p>
+                <p id="employees" class="stat-value">-</p>
+              </article>
+            </div>
+          </div>
+          <div class="hero-media">
+            <img id="heroImage" src="" alt="Equipe medicale en teleconsultation" loading="eager" />
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Fonctionnalites de la plateforme</h2>
+          </div>
+          <div id="services" class="grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Implantations en France</h2>
+          </div>
+          <div id="offices" class="grid"></div>
+        </section>
+
+        <section class="panel tele-panel">
+          <div class="panel-head tele-head">
+            <div>
+              <h2>Gestion des rendez-vous</h2>
+              <p>Les valeurs saisies sont stockees en base puis affichees dans le tableau ci-dessous.</p>
+            </div>
+            <article class="tele-kpi">
+              <p class="tele-kpi-label">Rendez-vous en base</p>
+              <p id="appointmentCount" class="tele-kpi-value">0</p>
+            </article>
+          </div>
+
+          <p id="editModeBanner" class="edit-banner hidden">
+            Mode edition actif pour le rendez-vous <strong id="editIdLabel"></strong>.
+          </p>
+
+          <form id="teleForm" class="tele-form" novalidate>
+            <label class="form-field">
+              <span>Nom du patient</span>
+              <input id="patientName" name="patientName" placeholder="Ex: Sara Martin" autocomplete="name" required />
+            </label>
+            <label class="form-field">
+              <span>Medecin souhaite</span>
+              <input id="doctorName" name="doctorName" placeholder="Ex: Dr Nadia Benali" required />
+            </label>
+            <label class="form-field">
+              <span>Specialite</span>
+              <input id="speciality" name="speciality" placeholder="Ex: Medecine generale" required />
+            </label>
+            <label class="form-field">
+              <span>Date et heure</span>
+              <input id="scheduledAt" name="scheduledAt" type="datetime-local" required />
+            </label>
+            <label class="form-field">
+              <span>Statut</span>
+              <select id="status" name="status">
+                <option value="PLANIFIEE">PLANIFIEE</option>
+                <option value="EN_COURS">EN_COURS</option>
+                <option value="TERMINEE">TERMINEE</option>
+              </select>
+            </label>
+            <label class="form-field full">
+              <span>Motif</span>
+              <textarea id="reason" name="reason" rows="3" placeholder="Ex: Suivi post-consultation" required></textarea>
+            </label>
+            <div class="form-actions">
+              <button id="submitButton" type="submit">Ajouter le rendez-vous</button>
+              <button id="cancelEditButton" class="btn-cancel hidden" type="button">Annuler la modification</button>
+            </div>
+          </form>
+
+          <p id="teleMessage" class="tele-message"></p>
+
+          <div class="panel-head panel-subhead">
+            <h3>Tableau des rendez-vous</h3>
+          </div>
+          <div class="table-wrap">
+            <table class="appointments-table" aria-label="Rendez-vous planifies">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Patient</th>
+                  <th>Medecin</th>
+                  <th>Specialite</th>
+                  <th>Date et heure</th>
+                  <th>Motif</th>
+                  <th>Statut</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="appointmentsBody"></tbody>
+            </table>
+            <p id="appointmentsEmpty" class="empty-state hidden">Aucun rendez-vous planifie pour le moment.</p>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
 
   <script src="/app.js"></script>
 </body>

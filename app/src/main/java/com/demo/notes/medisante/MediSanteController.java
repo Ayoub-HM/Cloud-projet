@@ -1,8 +1,11 @@
 package com.demo.notes.medisante;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -77,20 +80,12 @@ public class MediSanteController {
   public List<TeleconsultationCard> teleconsultations() {
     return teleconsultationRepository.findAllByOrderByScheduledAtAsc()
         .stream()
-        .map(teleconsultation -> new TeleconsultationCard(
-            teleconsultation.getId(),
-            teleconsultation.getPatientName(),
-            teleconsultation.getDoctorName(),
-            teleconsultation.getSpeciality(),
-            teleconsultation.getScheduledAt(),
-            teleconsultation.getStatus(),
-            teleconsultation.getReason()
-        ))
+        .map(this::toCard)
         .toList();
   }
 
   @PostMapping("/teleconsultations")
-  public ResponseEntity<?> createTeleconsultation(@RequestBody TeleconsultationCreateRequest req) {
+  public ResponseEntity<?> createTeleconsultation(@RequestBody TeleconsultationUpsertRequest req) {
     if (req == null
         || isBlank(req.patientName())
         || isBlank(req.doctorName())
@@ -105,7 +100,7 @@ public class MediSanteController {
         req.doctorName().trim(),
         req.speciality().trim(),
         req.scheduledAt(),
-        "PLANIFIEE",
+        resolveStatus(req.status(), "PLANIFIEE"),
         req.reason().trim()
     ));
 
@@ -114,19 +109,66 @@ public class MediSanteController {
         .buildAndExpand(Objects.requireNonNull(saved.getId()))
         .toUri();
 
-    return ResponseEntity.created(location).body(new TeleconsultationCard(
-        saved.getId(),
-        saved.getPatientName(),
-        saved.getDoctorName(),
-        saved.getSpeciality(),
-        saved.getScheduledAt(),
-        saved.getStatus(),
-        saved.getReason()
-    ));
+    return ResponseEntity.created(location).body(toCard(saved));
+  }
+
+  @PutMapping("/teleconsultations/{id}")
+  public ResponseEntity<?> updateTeleconsultation(@PathVariable Long id, @RequestBody TeleconsultationUpsertRequest req) {
+    if (req == null
+        || isBlank(req.patientName())
+        || isBlank(req.doctorName())
+        || isBlank(req.speciality())
+        || req.scheduledAt() == null
+        || isBlank(req.reason())) {
+      return ResponseEntity.badRequest().body("patientName, doctorName, speciality, scheduledAt and reason are required");
+    }
+
+    Teleconsultation existing = teleconsultationRepository.findById(id).orElse(null);
+    if (existing == null) {
+      return ResponseEntity.notFound().build();
+    }
+
+    existing.setPatientName(req.patientName().trim());
+    existing.setDoctorName(req.doctorName().trim());
+    existing.setSpeciality(req.speciality().trim());
+    existing.setScheduledAt(req.scheduledAt());
+    existing.setReason(req.reason().trim());
+    existing.setStatus(resolveStatus(req.status(), existing.getStatus()));
+
+    Teleconsultation saved = teleconsultationRepository.save(existing);
+    return ResponseEntity.ok(toCard(saved));
+  }
+
+  @DeleteMapping("/teleconsultations/{id}")
+  public ResponseEntity<Void> deleteTeleconsultation(@PathVariable Long id) {
+    if (!teleconsultationRepository.existsById(id)) {
+      return ResponseEntity.notFound().build();
+    }
+    teleconsultationRepository.deleteById(id);
+    return ResponseEntity.noContent().build();
   }
 
   private boolean isBlank(String value) {
     return value == null || value.isBlank();
+  }
+
+  private String resolveStatus(String status, String fallback) {
+    if (isBlank(status)) {
+      return fallback;
+    }
+    return status.trim().toUpperCase();
+  }
+
+  private TeleconsultationCard toCard(Teleconsultation teleconsultation) {
+    return new TeleconsultationCard(
+        teleconsultation.getId(),
+        teleconsultation.getPatientName(),
+        teleconsultation.getDoctorName(),
+        teleconsultation.getSpeciality(),
+        teleconsultation.getScheduledAt(),
+        teleconsultation.getStatus(),
+        teleconsultation.getReason()
+    );
   }
 
   private String resolveServiceImage(MedicalService service) {
@@ -163,12 +205,13 @@ public class MediSanteController {
   public record OfficeCard(String city, String role, int employees) {
   }
 
-  public record TeleconsultationCreateRequest(
+  public record TeleconsultationUpsertRequest(
       String patientName,
       String doctorName,
       String speciality,
       Instant scheduledAt,
-      String reason
+      String reason,
+      String status
   ) {
   }
 

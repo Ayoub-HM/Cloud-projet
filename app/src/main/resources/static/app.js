@@ -7,8 +7,8 @@ const FALLBACK_HOME_DATA = {
   foundedYear: 2018,
   employees: 120,
   heroImageUrl: "https://images.unsplash.com/photo-1631815588090-d1bcbe9a24b2?auto=format&fit=crop&w=1800&q=80",
-  companyStory: "MediSante+ est une entreprise francaise de telemedecine fondee en 2018, employant 120 collaborateurs repartis entre Paris (siege), Lyon et Bordeaux.",
-  platformOverview: "L'entreprise propose une plateforme permettant aux patients de consulter des medecins a distance, de gerer leurs dossiers medicaux et de recevoir des prescriptions electroniques.",
+  companyStory: "MediSante+ est une entreprise francaise de telemedecine fondee en 2018, employant 120 collaborateurs repartis entre Paris, Lyon et Bordeaux.",
+  platformOverview: "La plateforme permet les teleconsultations, le suivi des dossiers et la gestion des prescriptions.",
   services: [
     {
       title: "Consultations video securisees",
@@ -50,7 +50,7 @@ function escapeHtml(value) {
 function formatIsoToLocale(isoDate) {
   const parsedDate = new Date(isoDate);
   if (Number.isNaN(parsedDate.getTime())) {
-    return isoDate;
+    return isoDate || "-";
   }
   return parsedDate.toLocaleString("fr-FR", {
     year: "numeric",
@@ -64,6 +64,32 @@ function formatIsoToLocale(isoDate) {
 function toLocalDateTimeInputValue(date) {
   const pad = (value) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function isoToInputDateTime(isoDate) {
+  const parsedDate = new Date(isoDate);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "";
+  }
+  return toLocalDateTimeInputValue(parsedDate);
+}
+
+function normalizeStatus(status) {
+  const raw = String(status || "PLANIFIEE").trim().toUpperCase().replace(/\s+/g, "_");
+  if (raw === "EN_COURS" || raw === "TERMINEE" || raw === "PLANIFIEE") {
+    return raw;
+  }
+  return "PLANIFIEE";
+}
+
+function toStatusClass(status) {
+  if (status === "EN_COURS") {
+    return "en-cours";
+  }
+  if (status === "TERMINEE") {
+    return "terminee";
+  }
+  return "planifiee";
 }
 
 function showModeBadge(message) {
@@ -103,24 +129,13 @@ function officeCard(office) {
   return article;
 }
 
-function toStatusClass(status) {
-  const normalized = String(status || "").toLowerCase();
-  if (normalized.includes("cours")) {
-    return "en-cours";
-  }
-  if (normalized.includes("term")) {
-    return "terminee";
-  }
-  return "planifiee";
-}
-
 function td(value) {
   const cell = document.createElement("td");
   cell.textContent = value ?? "-";
   return cell;
 }
 
-function appointmentRow(appointment) {
+function appointmentRow(appointment, onEdit, onDelete) {
   const row = document.createElement("tr");
   row.appendChild(td(String(appointment.id ?? "-")));
   row.appendChild(td(appointment.patientName || "-"));
@@ -129,14 +144,40 @@ function appointmentRow(appointment) {
   row.appendChild(td(formatIsoToLocale(appointment.scheduledAt)));
   row.appendChild(td(appointment.reason || "-"));
 
+  const status = normalizeStatus(appointment.status);
   const statusCell = document.createElement("td");
-  const status = appointment.status || "PLANIFIEE";
   const statusTag = document.createElement("span");
   statusTag.className = `status-pill ${toStatusClass(status)}`;
   statusTag.textContent = status;
   statusCell.appendChild(statusTag);
   row.appendChild(statusCell);
+
+  const actionsCell = document.createElement("td");
+  const actionsWrap = document.createElement("div");
+  actionsWrap.className = "row-actions";
+
+  const editButton = document.createElement("button");
+  editButton.type = "button";
+  editButton.className = "action-btn edit";
+  editButton.textContent = "Modifier";
+  editButton.addEventListener("click", () => onEdit(appointment));
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "action-btn delete";
+  deleteButton.textContent = "Supprimer";
+  deleteButton.addEventListener("click", () => onDelete(appointment));
+
+  actionsWrap.appendChild(editButton);
+  actionsWrap.appendChild(deleteButton);
+  actionsCell.appendChild(actionsWrap);
+  row.appendChild(actionsCell);
   return row;
+}
+
+async function parseError(response) {
+  const text = await response.text();
+  return text || `Erreur ${response.status}`;
 }
 
 async function getJson(url) {
@@ -160,7 +201,7 @@ async function loadAppointments() {
   try {
     return await getJson(TELECONSULT_API);
   } catch (_error) {
-    showModeBadge("Mode partiel: la liste des teleconsultations n'est pas accessible.");
+    showModeBadge("Mode partiel: liste des teleconsultations indisponible.");
     return [];
   }
 }
@@ -171,13 +212,29 @@ async function createAppointment(payload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
-
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Erreur ${response.status}`);
+    throw new Error(await parseError(response));
   }
-
   return response.json();
+}
+
+async function updateAppointment(id, payload) {
+  const response = await fetch(`${TELECONSULT_API}/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+  return response.json();
+}
+
+async function deleteAppointment(id) {
+  const response = await fetch(`${TELECONSULT_API}/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
 }
 
 function renderHome(data) {
@@ -197,10 +254,11 @@ function renderHome(data) {
   data.offices.forEach((office) => officesNode.appendChild(officeCard(office)));
 }
 
-function renderAppointments(appointments) {
+function renderAppointments(appointments, onEdit, onDelete) {
   const appointmentsBody = document.getElementById("appointmentsBody");
   const appointmentsEmpty = document.getElementById("appointmentsEmpty");
   const appointmentCount = document.getElementById("appointmentCount");
+
   appointmentsBody.innerHTML = "";
   appointmentCount.textContent = String(appointments.length);
 
@@ -210,69 +268,144 @@ function renderAppointments(appointments) {
   }
 
   appointmentsEmpty.classList.add("hidden");
-  appointments.forEach((appointment) => appointmentsBody.appendChild(appointmentRow(appointment)));
+  appointments.forEach((appointment) => appointmentsBody.appendChild(appointmentRow(appointment, onEdit, onDelete)));
 }
 
-async function renderAll() {
-  clearModeBadge();
-  const [homeData, appointments] = await Promise.all([loadHomeData(), loadAppointments()]);
-  renderHome(homeData);
-  renderAppointments(appointments);
+function buildPayloadFromForm(form) {
+  const scheduledAtDate = new Date(form.scheduledAt.value);
+  if (Number.isNaN(scheduledAtDate.getTime())) {
+    throw new Error("La date saisie est invalide.");
+  }
+  return {
+    patientName: form.patientName.value.trim(),
+    doctorName: form.doctorName.value.trim(),
+    speciality: form.speciality.value.trim(),
+    scheduledAt: scheduledAtDate.toISOString(),
+    reason: form.reason.value.trim(),
+    status: normalizeStatus(form.status.value)
+  };
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const teleMessage = document.getElementById("teleMessage");
   const teleForm = document.getElementById("teleForm");
-  const scheduledAtInput = document.getElementById("scheduledAt");
+  const teleMessage = document.getElementById("teleMessage");
   const submitButton = document.getElementById("submitButton");
-  const defaultSubmitLabel = submitButton.textContent;
-  scheduledAtInput.min = toLocalDateTimeInputValue(new Date());
+  const cancelEditButton = document.getElementById("cancelEditButton");
+  const editModeBanner = document.getElementById("editModeBanner");
+  const editIdLabel = document.getElementById("editIdLabel");
+  const statusInput = document.getElementById("status");
+  const scheduledAtInput = document.getElementById("scheduledAt");
+  const defaultSubmitText = "Ajouter le rendez-vous";
+  const editSubmitText = "Enregistrer la modification";
+  let editingId = null;
+
+  function showMessage(message, type) {
+    teleMessage.textContent = message;
+    teleMessage.className = `tele-message ${type}`;
+  }
+
+  function clearMessage() {
+    teleMessage.textContent = "";
+    teleMessage.className = "tele-message";
+  }
+
+  function resetFormToCreateMode() {
+    editingId = null;
+    teleForm.reset();
+    statusInput.value = "PLANIFIEE";
+    scheduledAtInput.min = toLocalDateTimeInputValue(new Date());
+    submitButton.textContent = defaultSubmitText;
+    cancelEditButton.classList.add("hidden");
+    editModeBanner.classList.add("hidden");
+    editIdLabel.textContent = "";
+  }
+
+  function setFormToEditMode(appointment) {
+    editingId = appointment.id;
+    teleForm.patientName.value = appointment.patientName || "";
+    teleForm.doctorName.value = appointment.doctorName || "";
+    teleForm.speciality.value = appointment.speciality || "";
+    teleForm.reason.value = appointment.reason || "";
+    teleForm.scheduledAt.value = isoToInputDateTime(appointment.scheduledAt);
+    teleForm.status.value = normalizeStatus(appointment.status);
+    scheduledAtInput.min = "";
+    submitButton.textContent = editSubmitText;
+    cancelEditButton.classList.remove("hidden");
+    editModeBanner.classList.remove("hidden");
+    editIdLabel.textContent = `#${appointment.id}`;
+    clearMessage();
+  }
+
+  async function handleDeleteClick(appointment) {
+    const confirmed = window.confirm(`Supprimer le rendez-vous #${appointment.id} ?`);
+    if (!confirmed) {
+      return;
+    }
+    try {
+      await deleteAppointment(appointment.id);
+      if (editingId === appointment.id) {
+        resetFormToCreateMode();
+      }
+      showMessage("Rendez-vous supprime avec succes.", "success");
+      await refreshAppointments();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erreur inconnue";
+      showMessage(`Echec de suppression: ${message}`, "error");
+    }
+  }
+
+  async function refreshAppointments() {
+    const appointments = await loadAppointments();
+    renderAppointments(appointments, setFormToEditMode, handleDeleteClick);
+  }
+
+  cancelEditButton.addEventListener("click", () => {
+    resetFormToCreateMode();
+    clearMessage();
+  });
 
   teleForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    teleMessage.textContent = "";
-    teleMessage.className = "tele-message";
+    clearMessage();
 
     if (!teleForm.checkValidity()) {
       teleForm.reportValidity();
       return;
     }
 
-    const scheduledAtRaw = document.getElementById("scheduledAt").value;
-    const scheduledAtDate = new Date(scheduledAtRaw);
-    if (Number.isNaN(scheduledAtDate.getTime())) {
-      teleMessage.textContent = "La date saisie est invalide.";
-      teleMessage.className = "tele-message error";
+    let payload;
+    try {
+      payload = buildPayloadFromForm(teleForm);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erreur inconnue";
+      showMessage(message, "error");
       return;
     }
 
-    const payload = {
-      patientName: document.getElementById("patientName").value.trim(),
-      doctorName: document.getElementById("doctorName").value.trim(),
-      speciality: document.getElementById("speciality").value.trim(),
-      scheduledAt: scheduledAtDate.toISOString(),
-      reason: document.getElementById("reason").value.trim()
-    };
-
     submitButton.disabled = true;
-    submitButton.textContent = "Enregistrement...";
+    submitButton.textContent = editingId === null ? "Ajout en cours..." : "Mise a jour en cours...";
     try {
-      await createAppointment(payload);
-      teleMessage.textContent = "Rendez-vous cree avec succes.";
-      teleMessage.className = "tele-message success";
-      teleForm.reset();
-      scheduledAtInput.min = toLocalDateTimeInputValue(new Date());
-      const appointments = await loadAppointments();
-      renderAppointments(appointments);
+      if (editingId === null) {
+        await createAppointment(payload);
+        showMessage("Rendez-vous ajoute avec succes.", "success");
+      } else {
+        await updateAppointment(editingId, payload);
+        showMessage("Rendez-vous modifie avec succes.", "success");
+      }
+      resetFormToCreateMode();
+      await refreshAppointments();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
-      teleMessage.textContent = `Echec de creation: ${message}`;
-      teleMessage.className = "tele-message error";
+      showMessage(`Echec: ${message}`, "error");
     } finally {
       submitButton.disabled = false;
-      submitButton.textContent = defaultSubmitLabel;
+      submitButton.textContent = editingId === null ? defaultSubmitText : editSubmitText;
     }
   });
 
-  await renderAll();
+  clearModeBadge();
+  const [homeData] = await Promise.all([loadHomeData()]);
+  renderHome(homeData);
+  resetFormToCreateMode();
+  await refreshAppointments();
 });

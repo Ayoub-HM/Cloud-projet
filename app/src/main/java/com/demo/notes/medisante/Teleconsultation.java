@@ -86,4 +86,24 @@ public class Teleconsultation {
   public void setStatus(String status) {
     this.status = status;
   }
+
+  public void setPatientName(String patientName) {
+    this.patientName = patientName;
+  }
+
+  public void setDoctorName(String doctorName) {
+    this.doctorName = doctorName;
+  }
+
+  public void setSpeciality(String speciality) {
+    this.speciality = speciality;
+  }
+
+  public void setScheduledAt(Instant scheduledAt) {
+    this.scheduledAt = scheduledAt;
+  }
+
+  public void setReason(String reason) {
+    this.reason = reason;
+  }
 }
