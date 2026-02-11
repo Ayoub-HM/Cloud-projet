@@ -48,17 +48,22 @@ function escapeHtml(value) {
 }
 
 function formatIsoToLocale(isoDate) {
-  try {
-    return new Date(isoDate).toLocaleString("fr-FR", {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit"
-    });
-  } catch (_error) {
+  const parsedDate = new Date(isoDate);
+  if (Number.isNaN(parsedDate.getTime())) {
     return isoDate;
   }
+  return parsedDate.toLocaleString("fr-FR", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function toLocalDateTimeInputValue(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function showModeBadge(message) {
@@ -98,16 +103,40 @@ function officeCard(office) {
   return article;
 }
 
-function appointmentCard(appointment) {
-  const card = document.createElement("article");
-  card.className = "appointment-card";
-  card.innerHTML = `
-    <p class="appointment-date">${escapeHtml(formatIsoToLocale(appointment.scheduledAt))}</p>
-    <h4>${escapeHtml(appointment.patientName)} avec ${escapeHtml(appointment.doctorName)}</h4>
-    <p>${escapeHtml(appointment.speciality)} - ${escapeHtml(appointment.reason)}</p>
-    <span class="appointment-status">${escapeHtml(appointment.status)}</span>
-  `;
-  return card;
+function toStatusClass(status) {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized.includes("cours")) {
+    return "en-cours";
+  }
+  if (normalized.includes("term")) {
+    return "terminee";
+  }
+  return "planifiee";
+}
+
+function td(value) {
+  const cell = document.createElement("td");
+  cell.textContent = value ?? "-";
+  return cell;
+}
+
+function appointmentRow(appointment) {
+  const row = document.createElement("tr");
+  row.appendChild(td(String(appointment.id ?? "-")));
+  row.appendChild(td(appointment.patientName || "-"));
+  row.appendChild(td(appointment.doctorName || "-"));
+  row.appendChild(td(appointment.speciality || "-"));
+  row.appendChild(td(formatIsoToLocale(appointment.scheduledAt)));
+  row.appendChild(td(appointment.reason || "-"));
+
+  const statusCell = document.createElement("td");
+  const status = appointment.status || "PLANIFIEE";
+  const statusTag = document.createElement("span");
+  statusTag.className = `status-pill ${toStatusClass(status)}`;
+  statusTag.textContent = status;
+  statusCell.appendChild(statusTag);
+  row.appendChild(statusCell);
+  return row;
 }
 
 async function getJson(url) {
@@ -169,15 +198,19 @@ function renderHome(data) {
 }
 
 function renderAppointments(appointments) {
-  const appointmentsNode = document.getElementById("appointments");
-  appointmentsNode.innerHTML = "";
+  const appointmentsBody = document.getElementById("appointmentsBody");
+  const appointmentsEmpty = document.getElementById("appointmentsEmpty");
+  const appointmentCount = document.getElementById("appointmentCount");
+  appointmentsBody.innerHTML = "";
+  appointmentCount.textContent = String(appointments.length);
 
   if (!appointments.length) {
-    appointmentsNode.innerHTML = "<p class=\"empty-state\">Aucun rendez-vous planifie pour le moment.</p>";
+    appointmentsEmpty.classList.remove("hidden");
     return;
   }
 
-  appointments.forEach((appointment) => appointmentsNode.appendChild(appointmentCard(appointment)));
+  appointmentsEmpty.classList.add("hidden");
+  appointments.forEach((appointment) => appointmentsBody.appendChild(appointmentRow(appointment)));
 }
 
 async function renderAll() {
@@ -190,30 +223,54 @@ async function renderAll() {
 document.addEventListener("DOMContentLoaded", async () => {
   const teleMessage = document.getElementById("teleMessage");
   const teleForm = document.getElementById("teleForm");
+  const scheduledAtInput = document.getElementById("scheduledAt");
+  const submitButton = document.getElementById("submitButton");
+  const defaultSubmitLabel = submitButton.textContent;
+  scheduledAtInput.min = toLocalDateTimeInputValue(new Date());
 
   teleForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     teleMessage.textContent = "";
+    teleMessage.className = "tele-message";
+
+    if (!teleForm.checkValidity()) {
+      teleForm.reportValidity();
+      return;
+    }
 
     const scheduledAtRaw = document.getElementById("scheduledAt").value;
+    const scheduledAtDate = new Date(scheduledAtRaw);
+    if (Number.isNaN(scheduledAtDate.getTime())) {
+      teleMessage.textContent = "La date saisie est invalide.";
+      teleMessage.className = "tele-message error";
+      return;
+    }
+
     const payload = {
       patientName: document.getElementById("patientName").value.trim(),
       doctorName: document.getElementById("doctorName").value.trim(),
       speciality: document.getElementById("speciality").value.trim(),
-      scheduledAt: new Date(scheduledAtRaw).toISOString(),
+      scheduledAt: scheduledAtDate.toISOString(),
       reason: document.getElementById("reason").value.trim()
     };
 
+    submitButton.disabled = true;
+    submitButton.textContent = "Enregistrement...";
     try {
       await createAppointment(payload);
       teleMessage.textContent = "Rendez-vous cree avec succes.";
       teleMessage.className = "tele-message success";
       teleForm.reset();
+      scheduledAtInput.min = toLocalDateTimeInputValue(new Date());
       const appointments = await loadAppointments();
       renderAppointments(appointments);
     } catch (error) {
-      teleMessage.textContent = `Echec de creation: ${error.message}`;
+      const message = error instanceof Error ? error.message : "Erreur inconnue";
+      teleMessage.textContent = `Echec de creation: ${message}`;
       teleMessage.className = "tele-message error";
+    } finally {
+      submitButton.disabled = false;
+      submitButton.textContent = defaultSubmitLabel;
     }
   });
 

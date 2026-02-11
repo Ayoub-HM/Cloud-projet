@@ -50,33 +50,41 @@
     </section>
 
     <section class="panel tele-panel">
-      <div class="panel-head">
-        <h2>Prendre un rendez-vous de teleconsultation</h2>
-        <p>Une demande creee ici apparait directement dans la liste de suivi.</p>
+      <div class="panel-head tele-head">
+        <div>
+          <h2>Prendre un rendez-vous de teleconsultation</h2>
+          <p>Chaque valeur saisie est enregistree en base et affichee dans le tableau de suivi.</p>
+        </div>
+        <article class="tele-kpi">
+          <p class="tele-kpi-label">Rendez-vous en base</p>
+          <p id="appointmentCount" class="tele-kpi-value">0</p>
+        </article>
       </div>
 
-      <form id="teleForm" class="tele-form">
-        <label>
-          Nom du patient
-          <input id="patientName" name="patientName" required />
+      <form id="teleForm" class="tele-form" novalidate>
+        <label class="form-field">
+          <span>Nom du patient</span>
+          <input id="patientName" name="patientName" placeholder="Ex: Sara Martin" autocomplete="name" required />
         </label>
-        <label>
-          Medecin souhaite
-          <input id="doctorName" name="doctorName" required />
+        <label class="form-field">
+          <span>Medecin souhaite</span>
+          <input id="doctorName" name="doctorName" placeholder="Ex: Dr Nadia Benali" required />
         </label>
-        <label>
-          Specialite
-          <input id="speciality" name="speciality" placeholder="Medecine generale, Dermatologie..." required />
+        <label class="form-field">
+          <span>Specialite</span>
+          <input id="speciality" name="speciality" placeholder="Ex: Medecine generale" required />
         </label>
-        <label>
-          Date et heure
+        <label class="form-field">
+          <span>Date et heure</span>
           <input id="scheduledAt" name="scheduledAt" type="datetime-local" required />
         </label>
-        <label class="full">
-          Motif
-          <textarea id="reason" name="reason" rows="3" required></textarea>
+        <label class="form-field full">
+          <span>Motif</span>
+          <textarea id="reason" name="reason" rows="3" placeholder="Ex: Suivi post-consultation" required></textarea>
         </label>
-        <button type="submit">Demander une teleconsultation</button>
+        <div class="form-actions">
+          <button id="submitButton" type="submit">Demander une teleconsultation</button>
+        </div>
       </form>
 
       <p id="teleMessage" class="tele-message"></p>
@@ -84,7 +92,23 @@
       <div class="panel-head panel-subhead">
         <h3>Rendez-vous planifies</h3>
       </div>
-      <div id="appointments" class="appointments"></div>
+      <div class="table-wrap">
+        <table class="appointments-table" aria-label="Rendez-vous planifies">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Patient</th>
+              <th>Medecin</th>
+              <th>Specialite</th>
+              <th>Date et heure</th>
+              <th>Motif</th>
+              <th>Statut</th>
+            </tr>
+          </thead>
+          <tbody id="appointmentsBody"></tbody>
+        </table>
+        <p id="appointmentsEmpty" class="empty-state hidden">Aucun rendez-vous planifie pour le moment.</p>
+      </div>
     </section>
   </main>
 

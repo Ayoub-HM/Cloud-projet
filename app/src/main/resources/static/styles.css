@@ -140,6 +140,19 @@ h1 {
 
 .panel {
   margin-top: 26px;
+  animation: rise-in 0.55s ease both;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .panel-head h2 {
@@ -213,20 +226,50 @@ h1 {
 }
 
 .tele-panel {
-  background: rgba(255, 255, 255, 0.66);
-  border: 1px solid var(--card-border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.84) 0%, rgba(246, 251, 255, 0.92) 100%);
+  border: 1px solid rgba(16, 58, 85, 0.14);
   border-radius: 22px;
-  padding: 20px;
+  padding: 22px;
+  box-shadow: 0 16px 30px rgba(16, 54, 78, 0.09);
+}
+
+.tele-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-end;
+}
+
+.tele-kpi {
+  min-width: 190px;
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: linear-gradient(145deg, rgba(15, 61, 95, 0.92), rgba(47, 127, 165, 0.92));
+  color: #fff;
+}
+
+.tele-kpi-label {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #d0e8f7;
+}
+
+.tele-kpi-value {
+  margin: 4px 0 0;
+  font-size: 1.9rem;
+  font-weight: 800;
 }
 
 .tele-form {
-  margin-top: 12px;
+  margin-top: 16px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
 
-.tele-form label {
+.form-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -235,32 +278,48 @@ h1 {
   font-size: 0.92rem;
 }
 
+.form-field span {
+  font-size: 0.84rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #2e576b;
+}
+
 .tele-form input,
 .tele-form textarea {
   width: 100%;
-  border: 1px solid #c8d9e3;
+  border: 1px solid #b7cfdd;
   border-radius: 12px;
-  padding: 10px 11px;
+  padding: 11px 12px;
   font: inherit;
   color: var(--ink-1);
-  background: #fff;
+  background: #ffffff;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .tele-form input:focus,
 .tele-form textarea:focus {
-  outline: 2px solid #9ec8e0;
-  outline-offset: 0;
+  outline: 0;
+  border-color: #4a91b5;
+  box-shadow: 0 0 0 3px rgba(74, 145, 181, 0.22);
 }
 
 .tele-form .full {
   grid-column: 1 / -1;
 }
 
+.form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-start;
+}
+
 .tele-form button {
+  min-width: 270px;
   grid-column: 1 / -1;
   border: 0;
   border-radius: 12px;
-  padding: 11px 14px;
+  padding: 12px 16px;
   font: inherit;
   font-weight: 800;
   color: #fff;
@@ -274,8 +333,15 @@ h1 {
   box-shadow: 0 10px 20px rgba(213, 111, 36, 0.3);
 }
 
+.tele-form button:disabled {
+  opacity: 0.7;
+  cursor: wait;
+  transform: none;
+  box-shadow: none;
+}
+
 .tele-message {
-  margin: 12px 0 2px;
+  margin: 14px 0 2px;
   font-weight: 700;
   min-height: 1.3rem;
 }
@@ -297,50 +363,76 @@ h1 {
   font-size: 1.1rem;
 }
 
-.appointments {
+.table-wrap {
   margin-top: 10px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.appointment-card {
+  border-radius: 16px;
+  border: 1px solid #cadbe7;
   background: #fff;
-  border: 1px solid #d4e2ea;
-  border-radius: 14px;
-  padding: 12px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
-.appointment-date {
-  margin: 0;
-  color: #4e7a91;
-  font-size: 0.85rem;
-  font-weight: 700;
+.appointments-table {
+  width: 100%;
+  border-collapse: collapse;
 }
 
-.appointment-card h4 {
-  margin: 5px 0 6px;
-  font-size: 1rem;
+.appointments-table thead {
+  background: linear-gradient(180deg, #edf6fc 0%, #e3f0f8 100%);
 }
 
-.appointment-card p {
-  margin: 0;
-  color: var(--ink-2);
+.appointments-table th,
+.appointments-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 11px 12px;
+  border-bottom: 1px solid #e3edf4;
+  font-size: 0.9rem;
 }
 
-.appointment-status {
-  margin-top: 9px;
-  display: inline-block;
+.appointments-table th {
+  color: #224b61;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  font-size: 0.73rem;
+}
+
+.appointments-table tbody tr:nth-child(even) {
+  background: #fbfdff;
+}
+
+.appointments-table tbody tr:hover {
+  background: #f4faff;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 9px;
   font-size: 0.75rem;
   font-weight: 800;
+}
+
+.status-pill.planifiee {
   color: #195f44;
   background: #def3ea;
-  border-radius: 999px;
-  padding: 4px 8px;
+}
+
+.status-pill.en-cours {
+  color: #725315;
+  background: #fbeecf;
+}
+
+.status-pill.terminee {
+  color: #164e84;
+  background: #daecfb;
 }
 
 .empty-state {
   margin: 0;
+  padding: 14px 12px;
   color: #597582;
 }
 
@@ -371,9 +463,34 @@ h1 {
     grid-template-columns: 1fr;
   }
 
+  .tele-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .tele-kpi {
+    min-width: 0;
+  }
+
+  .form-actions {
+    justify-content: stretch;
+  }
+
+  .tele-form button {
+    width: 100%;
+    min-width: 0;
+  }
+
   .grid,
-  .appointments,
   .tele-form {
     grid-template-columns: 1fr;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  .appointments-table {
+    min-width: 760px;
   }
 }
