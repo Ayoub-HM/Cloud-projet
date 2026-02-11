@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "test" ]
   pull_request:
   workflow_dispatch:
 
@@ -42,7 +42,7 @@ jobs:
   docker_build_push:
     needs: build_test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test')
     steps:
       - uses: actions/checkout@v4
 
@@ -58,11 +58,19 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/notes-api
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha
+
       - name: Build & push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/notes-api:latest
-            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/notes-api:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
