@@ -4,6 +4,7 @@ on:
   push:
     branches: [ "main" ]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build_test:
@@ -25,7 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-
       - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
@@ -42,7 +42,7 @@ jobs:
   docker_build_push:
     needs: build_test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
@@ -62,3 +62,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          push: true
+          tags: |
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/notes-api:latest
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/notes-api:${{ github.sha }}
