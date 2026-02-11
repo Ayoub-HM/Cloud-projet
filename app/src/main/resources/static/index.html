@@ -1,25 +1,48 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Notes UI</title>
+  <title>MediSante+ | Telemedecine en France</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <main>
-    <h1>Notes</h1>
+  <div class="background-shape background-shape-a"></div>
+  <div class="background-shape background-shape-b"></div>
 
-    <section class="create">
-      <form id="createForm">
-        <input id="title" placeholder="Title" required />
-        <textarea id="content" placeholder="Content" required></textarea>
-        <button type="submit">Create</button>
-      </form>
+  <main class="layout">
+    <header class="hero">
+      <p class="eyebrow">Plateforme de telemedecine</p>
+      <h1 id="companyTitle">MediSante+</h1>
+      <p id="companyStory" class="lead"></p>
+      <p id="companyOverview" class="sublead"></p>
+      <div class="stats">
+        <article class="stat-card">
+          <p class="stat-label">Annee de creation</p>
+          <p id="foundedYear" class="stat-value">-</p>
+        </article>
+        <article class="stat-card">
+          <p class="stat-label">Collaborateurs</p>
+          <p id="employees" class="stat-value">-</p>
+        </article>
+      </div>
+    </header>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Fonctionnalites de la plateforme</h2>
+      </div>
+      <div id="services" class="grid"></div>
     </section>
 
-    <section>
-      <ul id="notes" class="notes-list"></ul>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Implantations en France</h2>
+      </div>
+      <div id="offices" class="grid"></div>
     </section>
   </main>
 

@@ -1,17 +1,16 @@
-# DevOps Demo POC (Notes API)
+# MediSante+ Telemedecine Platform
 
-Minimal project for DevOps beginners:
-- Java 17 + Spring Boot (REST)
+Spring Boot + PostgreSQL demo application for a French telemedicine company.
+
+Tech stack:
+- Java 21 + Spring Boot (REST + static frontend)
 - PostgreSQL
 - Docker + docker-compose
 - Kubernetes manifests (kind/minikube)
 - GitHub Actions (build/test + push image)
 
-Endpoints:
-- GET  /api/notes
-- GET  /api/notes/{id}
-- POST /api/notes
-- DELETE /api/notes/{id}
+Main endpoint:
+- GET `/api/medisante/home` (content for the landing page)
 
 ## Docker Hub push (GitHub Actions)
 
@@ -19,7 +18,8 @@ Set these GitHub repository secrets:
 - `DOCKERHUB_USERNAME`: your Docker Hub username
 - `DOCKERHUB_TOKEN`: a Docker Hub access token (not your password)
 
-Then push to `main`.
-The workflow will publish:
-- `docker.io/<DOCKERHUB_USERNAME>/notes-api:latest`
-- `docker.io/<DOCKERHUB_USERNAME>/notes-api:<git-sha>`
+Then push to `main` or `test`.
+The workflow will publish tags such as:
+- `docker.io/<DOCKERHUB_USERNAME>/notes-api:latest` (from default branch)
+- `docker.io/<DOCKERHUB_USERNAME>/notes-api:main` or `:test`
+- `docker.io/<DOCKERHUB_USERNAME>/notes-api:sha-<git-sha>`

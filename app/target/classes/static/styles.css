@@ -1,11 +1,208 @@
-body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:24px;background:#f7f8fa;color:#111}
-main{max-width:800px;margin:0 auto}
-h1{margin-bottom:12px}
-.create input,.create textarea{display:block;width:100%;padding:8px;margin-bottom:8px;border:1px solid #ddd;border-radius:4px}
-.create button{padding:8px 12px;border-radius:4px}
-.notes-list{list-style:none;padding:0;margin-top:16px}
-.note{background:#fff;border:1px solid #e6e6e6;padding:12px;border-radius:6px;margin-bottom:8px}
-.note h3{margin:0 0 6px 0}
-.note p{margin:0 0 8px 0}
-.note .delete{background:#e53e3e;color:#fff;border:none;padding:6px 8px;border-radius:4px}
-.empty{color:#666}
+:root {
+  --bg-cream: #f7f5ef;
+  --bg-deep: #15334f;
+  --accent: #f28f3b;
+  --accent-soft: #ffd9b8;
+  --text-main: #13212b;
+  --text-muted: #476173;
+  --card-bg: rgba(255, 255, 255, 0.85);
+  --card-border: rgba(19, 33, 43, 0.1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Space Grotesk", "Trebuchet MS", sans-serif;
+  color: var(--text-main);
+  background:
+    radial-gradient(circle at 90% 5%, #9ac8e4 0%, rgba(154, 200, 228, 0) 38%),
+    radial-gradient(circle at 8% 95%, #f8d7bf 0%, rgba(248, 215, 191, 0) 36%),
+    var(--bg-cream);
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+}
+
+.background-shape {
+  position: fixed;
+  border-radius: 999px;
+  filter: blur(2px);
+  z-index: 0;
+}
+
+.background-shape-a {
+  width: 320px;
+  height: 320px;
+  right: -90px;
+  top: -120px;
+  background: linear-gradient(160deg, #e3f0f8, #b2d5eb);
+}
+
+.background-shape-b {
+  width: 300px;
+  height: 300px;
+  left: -110px;
+  bottom: -150px;
+  background: linear-gradient(160deg, #ffe6cf, #ffd2ab);
+}
+
+.layout {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 40px 20px 70px;
+  position: relative;
+  z-index: 1;
+}
+
+.hero {
+  background: linear-gradient(145deg, rgba(21, 51, 79, 0.94), rgba(30, 71, 108, 0.95));
+  color: #fff;
+  border-radius: 28px;
+  padding: 34px;
+  box-shadow: 0 20px 50px rgba(9, 25, 39, 0.24);
+}
+
+.eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.78rem;
+  color: #b8d7ea;
+}
+
+h1 {
+  margin: 10px 0 12px;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  line-height: 1.04;
+}
+
+.lead {
+  margin: 0;
+  max-width: 72ch;
+  font-size: 1.03rem;
+  line-height: 1.6;
+}
+
+.sublead {
+  margin: 14px 0 0;
+  color: #d4e7f4;
+  max-width: 72ch;
+  line-height: 1.5;
+}
+
+.stats {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.stat-card {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 18px;
+  padding: 16px 18px;
+  backdrop-filter: blur(2px);
+}
+
+.stat-label {
+  margin: 0;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #d4e7f4;
+}
+
+.stat-value {
+  margin: 6px 0 0;
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+
+.panel {
+  margin-top: 24px;
+}
+
+.panel-head h2 {
+  margin: 0 0 12px;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(1.5rem, 2.4vw, 2rem);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 18px;
+  box-shadow: 0 12px 30px rgba(19, 33, 43, 0.08);
+}
+
+.card h3 {
+  margin: 0 0 10px;
+  font-size: 1.15rem;
+}
+
+.card p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.card-pill {
+  margin-bottom: 9px;
+  display: inline-block;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: #9a561f;
+  font-size: 0.78rem;
+  padding: 5px 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.office-count {
+  margin-top: 12px;
+  color: var(--bg-deep);
+  font-weight: 700;
+}
+
+.card-error {
+  border-color: rgba(169, 42, 24, 0.24);
+  color: #7a2918;
+  background: #fff4f1;
+}
+
+@media (max-width: 860px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .layout {
+    padding: 24px 14px 50px;
+  }
+
+  .hero {
+    padding: 24px 18px;
+    border-radius: 20px;
+  }
+
+  .stats {
+    grid-template-columns: 1fr;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

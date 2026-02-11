@@ -1,56 +1,69 @@
-const apiRoot = '/api/notes';
+const apiRoot = "/api/medisante/home";
 
-async function listNotes() {
-  const res = await fetch(apiRoot);
-  if (!res.ok) return [];
-  return res.json();
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"'`]/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+    "`": "&#96;"
+  }[c]));
 }
 
-function noteItem(note) {
-  const li = document.createElement('li');
-  li.className = 'note';
-  li.innerHTML = `<h3>${escapeHtml(note.title)}</h3><p>${escapeHtml(note.content)}</p><button data-id="${note.id}" class="delete">Delete</button>`;
-  li.querySelector('.delete').addEventListener('click', async () => {
-    await fetch(`${apiRoot}/${note.id}`, { method: 'DELETE' });
-    render();
-  });
-  return li;
+function serviceCard(service) {
+  const article = document.createElement("article");
+  article.className = "card";
+  article.innerHTML = `
+    <p class="card-pill">${escapeHtml(service.category)}</p>
+    <h3>${escapeHtml(service.title)}</h3>
+    <p>${escapeHtml(service.description)}</p>
+  `;
+  return article;
 }
 
-function escapeHtml(s){
-  return String(s).replace(/[&<>"'`]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;","`":"&#96;"}[c]));
+function officeCard(office) {
+  const article = document.createElement("article");
+  article.className = "card";
+  article.innerHTML = `
+    <h3>${escapeHtml(office.city)}</h3>
+    <p>${escapeHtml(office.role)}</p>
+    <p class="office-count">${escapeHtml(office.employees)} collaborateurs</p>
+  `;
+  return article;
 }
 
-async function createNote(title, content){
-  const res = await fetch(apiRoot, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, content })
-  });
-  return res.ok ? res.json() : null;
-}
-
-async function render(){
-  const ul = document.getElementById('notes');
-  ul.innerHTML = '';
-  const notes = await listNotes();
-  if (!notes || notes.length === 0) {
-    ul.innerHTML = '<li class="empty">No notes yet.</li>';
-    return;
+async function loadHomeData() {
+  const response = await fetch(apiRoot);
+  if (!response.ok) {
+    throw new Error(`Impossible de charger les donnees (${response.status})`);
   }
-  notes.forEach(n => ul.appendChild(noteItem(n)));
+  return response.json();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  const form = document.getElementById('createForm');
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const title = document.getElementById('title').value.trim();
-    const content = document.getElementById('content').value.trim();
-    if (!title || !content) return;
-    await createNote(title, content);
-    form.reset();
-    render();
-  });
-  render();
+async function render() {
+  const data = await loadHomeData();
+
+  document.getElementById("companyTitle").textContent = data.company;
+  document.getElementById("companyStory").textContent = data.companyStory;
+  document.getElementById("companyOverview").textContent = data.platformOverview;
+  document.getElementById("foundedYear").textContent = data.foundedYear;
+  document.getElementById("employees").textContent = data.employees;
+
+  const servicesNode = document.getElementById("services");
+  servicesNode.innerHTML = "";
+  data.services.forEach((service) => servicesNode.appendChild(serviceCard(service)));
+
+  const officesNode = document.getElementById("offices");
+  officesNode.innerHTML = "";
+  data.offices.forEach((office) => officesNode.appendChild(officeCard(office)));
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    await render();
+  } catch (error) {
+    const servicesNode = document.getElementById("services");
+    servicesNode.innerHTML = `<article class="card card-error">${escapeHtml(error.message)}</article>`;
+  }
 });
