@@ -1,4 +1,4 @@
 -------------------------------------------------------------------------------
 Test set: com.demo.notes.medisante.MediSanteControllerWebTest
 -------------------------------------------------------------------------------
-Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 12.93 s -- in com.demo.notes.medisante.MediSanteControllerWebTest
+Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 12.92 s -- in com.demo.notes.medisante.MediSanteControllerWebTest
