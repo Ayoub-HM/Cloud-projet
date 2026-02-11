@@ -16,6 +16,14 @@ import java.util.Objects;
 @RestController
 @RequestMapping("/api/medisante")
 public class MediSanteController {
+  private static final String DEFAULT_SERVICE_IMAGE =
+      "https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&w=1200&q=80";
+  private static final String TELECONSULT_IMAGE =
+      "https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=1200&q=80";
+  private static final String RECORDS_IMAGE =
+      "https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=1200&q=80";
+  private static final String PRESCRIPTION_IMAGE =
+      "https://images.unsplash.com/photo-1585435557343-3b092031a831?auto=format&fit=crop&w=1200&q=80";
 
   private final MedicalServiceRepository medicalServiceRepository;
   private final OfficeRepository officeRepository;
@@ -39,7 +47,7 @@ public class MediSanteController {
             service.getTitle(),
             service.getDescription(),
             service.getCategory(),
-            service.getImageUrl()
+            resolveServiceImage(service)
         ))
         .toList();
 
@@ -119,6 +127,21 @@ public class MediSanteController {
 
   private boolean isBlank(String value) {
     return value == null || value.isBlank();
+  }
+
+  private String resolveServiceImage(MedicalService service) {
+    if ("Teleconsultation".equalsIgnoreCase(service.getCategory())) {
+      return TELECONSULT_IMAGE;
+    }
+    if ("Dossier medical".equalsIgnoreCase(service.getCategory())) {
+      return RECORDS_IMAGE;
+    }
+    if ("Prescription".equalsIgnoreCase(service.getCategory())) {
+      return PRESCRIPTION_IMAGE;
+    }
+    return service.getImageUrl() == null || service.getImageUrl().isBlank()
+        ? DEFAULT_SERVICE_IMAGE
+        : service.getImageUrl();
   }
 
   public record MediSanteHomeResponse(

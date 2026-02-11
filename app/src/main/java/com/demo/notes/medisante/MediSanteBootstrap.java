@@ -40,6 +40,13 @@ public class MediSanteBootstrap {
         ));
       }
 
+      medicalServiceRepository.findAllByOrderByIdAsc().forEach(service -> {
+        if (service.getImageUrl() == null || service.getImageUrl().isBlank()) {
+          service.setImageUrl(imageUrlForCategory(service.getCategory()));
+          medicalServiceRepository.save(service);
+        }
+      });
+
       if (officeRepository.count() == 0) {
         officeRepository.saveAll(List.of(
             new Office("Paris", "Siege social", 65),
@@ -69,5 +76,18 @@ public class MediSanteBootstrap {
         ));
       }
     };
+  }
+
+  private String imageUrlForCategory(String category) {
+    if ("Teleconsultation".equalsIgnoreCase(category)) {
+      return "https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=1200&q=80";
+    }
+    if ("Dossier medical".equalsIgnoreCase(category)) {
+      return "https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=1200&q=80";
+    }
+    if ("Prescription".equalsIgnoreCase(category)) {
+      return "https://images.unsplash.com/photo-1585435557343-3b092031a831?auto=format&fit=crop&w=1200&q=80";
+    }
+    return "https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&w=1200&q=80";
   }
 }

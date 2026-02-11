@@ -120,7 +120,6 @@ async function getJson(url) {
 
 async function loadHomeData() {
   try {
-    clearModeBadge();
     return await getJson(HOME_API);
   } catch (_error) {
     showModeBadge("Mode demo actif: API home indisponible, donnees de secours affichees.");
@@ -182,6 +181,7 @@ function renderAppointments(appointments) {
 }
 
 async function renderAll() {
+  clearModeBadge();
   const [homeData, appointments] = await Promise.all([loadHomeData(), loadAppointments()]);
   renderHome(homeData);
   renderAppointments(appointments);

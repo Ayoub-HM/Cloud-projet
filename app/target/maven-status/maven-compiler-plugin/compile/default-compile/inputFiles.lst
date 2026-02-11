@@ -5,3 +5,5 @@
 /workspace/app/src/main/java/com/demo/notes/medisante/MedicalServiceRepository.java
 /workspace/app/src/main/java/com/demo/notes/medisante/Office.java
 /workspace/app/src/main/java/com/demo/notes/medisante/OfficeRepository.java
+/workspace/app/src/main/java/com/demo/notes/medisante/Teleconsultation.java
+/workspace/app/src/main/java/com/demo/notes/medisante/TeleconsultationRepository.java

@@ -9,8 +9,10 @@ Tech stack:
 - Kubernetes manifests (kind/minikube)
 - GitHub Actions (build/test + push image)
 
-Main endpoint:
-- GET `/api/medisante/home` (content for the landing page)
+Main endpoints:
+- GET `/api/medisante/home` (content for the landing page with service visuals)
+- GET `/api/medisante/teleconsultations` (list scheduled remote consultations)
+- POST `/api/medisante/teleconsultations` (create a new remote consultation request)
 
 ## Docker Hub push (GitHub Actions)
 
