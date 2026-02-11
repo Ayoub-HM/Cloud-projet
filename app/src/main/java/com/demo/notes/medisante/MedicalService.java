@@ -24,14 +24,18 @@ public class MedicalService {
   @Column(nullable = false, length = 80)
   private String category;
 
+  @Column(nullable = false, length = 500)
+  private String imageUrl;
+
   protected MedicalService() {
     // JPA
   }
 
-  public MedicalService(String title, String description, String category) {
+  public MedicalService(String title, String description, String category, String imageUrl) {
     this.title = title;
     this.description = description;
     this.category = category;
+    this.imageUrl = imageUrl;
   }
 
   public Long getId() {
@@ -48,5 +52,9 @@ public class MedicalService {
 
   public String getCategory() {
     return category;
+  }
+
+  public String getImageUrl() {
+    return imageUrl;
   }
 }

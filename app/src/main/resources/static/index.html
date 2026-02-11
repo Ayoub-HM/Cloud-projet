@@ -6,28 +6,32 @@
   <title>MediSante+ | Telemedecine en France</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <div class="background-shape background-shape-a"></div>
-  <div class="background-shape background-shape-b"></div>
-
   <main class="layout">
+    <p id="modeBadge" class="mode-badge hidden"></p>
+
     <header class="hero">
-      <p class="eyebrow">Plateforme de telemedecine</p>
-      <h1 id="companyTitle">MediSante+</h1>
-      <p id="companyStory" class="lead"></p>
-      <p id="companyOverview" class="sublead"></p>
-      <div class="stats">
-        <article class="stat-card">
-          <p class="stat-label">Annee de creation</p>
-          <p id="foundedYear" class="stat-value">-</p>
-        </article>
-        <article class="stat-card">
-          <p class="stat-label">Collaborateurs</p>
-          <p id="employees" class="stat-value">-</p>
-        </article>
+      <div class="hero-copy">
+        <p class="eyebrow">Plateforme de telemedecine</p>
+        <h1 id="companyTitle">MediSante+</h1>
+        <p id="companyStory" class="lead"></p>
+        <p id="companyOverview" class="sublead"></p>
+        <div class="stats">
+          <article class="stat-card">
+            <p class="stat-label">Annee de creation</p>
+            <p id="foundedYear" class="stat-value">-</p>
+          </article>
+          <article class="stat-card">
+            <p class="stat-label">Collaborateurs</p>
+            <p id="employees" class="stat-value">-</p>
+          </article>
+        </div>
+      </div>
+      <div class="hero-media">
+        <img id="heroImage" src="" alt="Equipe medicale en teleconsultation" loading="eager" />
       </div>
     </header>
 
@@ -43,6 +47,44 @@
         <h2>Implantations en France</h2>
       </div>
       <div id="offices" class="grid"></div>
+    </section>
+
+    <section class="panel tele-panel">
+      <div class="panel-head">
+        <h2>Prendre un rendez-vous de teleconsultation</h2>
+        <p>Une demande creee ici apparait directement dans la liste de suivi.</p>
+      </div>
+
+      <form id="teleForm" class="tele-form">
+        <label>
+          Nom du patient
+          <input id="patientName" name="patientName" required />
+        </label>
+        <label>
+          Medecin souhaite
+          <input id="doctorName" name="doctorName" required />
+        </label>
+        <label>
+          Specialite
+          <input id="speciality" name="speciality" placeholder="Medecine generale, Dermatologie..." required />
+        </label>
+        <label>
+          Date et heure
+          <input id="scheduledAt" name="scheduledAt" type="datetime-local" required />
+        </label>
+        <label class="full">
+          Motif
+          <textarea id="reason" name="reason" rows="3" required></textarea>
+        </label>
+        <button type="submit">Demander une teleconsultation</button>
+      </form>
+
+      <p id="teleMessage" class="tele-message"></p>
+
+      <div class="panel-head panel-subhead">
+        <h3>Rendez-vous planifies</h3>
+      </div>
+      <div id="appointments" class="appointments"></div>
     </section>
   </main>
 

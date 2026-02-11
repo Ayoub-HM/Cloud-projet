@@ -1,10 +1,17 @@
 package com.demo.notes.medisante;
 
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import java.net.URI;
+import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/medisante")
@@ -12,10 +19,16 @@ public class MediSanteController {
 
   private final MedicalServiceRepository medicalServiceRepository;
   private final OfficeRepository officeRepository;
+  private final TeleconsultationRepository teleconsultationRepository;
 
-  public MediSanteController(MedicalServiceRepository medicalServiceRepository, OfficeRepository officeRepository) {
+  public MediSanteController(
+      MedicalServiceRepository medicalServiceRepository,
+      OfficeRepository officeRepository,
+      TeleconsultationRepository teleconsultationRepository
+  ) {
     this.medicalServiceRepository = medicalServiceRepository;
     this.officeRepository = officeRepository;
+    this.teleconsultationRepository = teleconsultationRepository;
   }
 
   @GetMapping("/home")
@@ -25,7 +38,8 @@ public class MediSanteController {
         .map(service -> new MedicalServiceCard(
             service.getTitle(),
             service.getDescription(),
-            service.getCategory()
+            service.getCategory(),
+            service.getImageUrl()
         ))
         .toList();
 
@@ -43,6 +57,7 @@ public class MediSanteController {
         "Entreprise francaise de telemedecine",
         2018,
         120,
+        "https://images.unsplash.com/photo-1631815588090-d1bcbe9a24b2?auto=format&fit=crop&w=1800&q=80",
         "MediSante+ est une entreprise francaise de telemedecine fondee en 2018, employant 120 collaborateurs repartis entre Paris (siege), Lyon et Bordeaux.",
         "L'entreprise propose une plateforme permettant aux patients de consulter des medecins a distance, de gerer leurs dossiers medicaux et de recevoir des prescriptions electroniques.",
         services,
@@ -50,11 +65,68 @@ public class MediSanteController {
     );
   }
 
+  @GetMapping("/teleconsultations")
+  public List<TeleconsultationCard> teleconsultations() {
+    return teleconsultationRepository.findAllByOrderByScheduledAtAsc()
+        .stream()
+        .map(teleconsultation -> new TeleconsultationCard(
+            teleconsultation.getId(),
+            teleconsultation.getPatientName(),
+            teleconsultation.getDoctorName(),
+            teleconsultation.getSpeciality(),
+            teleconsultation.getScheduledAt(),
+            teleconsultation.getStatus(),
+            teleconsultation.getReason()
+        ))
+        .toList();
+  }
+
+  @PostMapping("/teleconsultations")
+  public ResponseEntity<?> createTeleconsultation(@RequestBody TeleconsultationCreateRequest req) {
+    if (req == null
+        || isBlank(req.patientName())
+        || isBlank(req.doctorName())
+        || isBlank(req.speciality())
+        || req.scheduledAt() == null
+        || isBlank(req.reason())) {
+      return ResponseEntity.badRequest().body("patientName, doctorName, speciality, scheduledAt and reason are required");
+    }
+
+    Teleconsultation saved = teleconsultationRepository.save(new Teleconsultation(
+        req.patientName().trim(),
+        req.doctorName().trim(),
+        req.speciality().trim(),
+        req.scheduledAt(),
+        "PLANIFIEE",
+        req.reason().trim()
+    ));
+
+    URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+        .path("/{id}")
+        .buildAndExpand(Objects.requireNonNull(saved.getId()))
+        .toUri();
+
+    return ResponseEntity.created(location).body(new TeleconsultationCard(
+        saved.getId(),
+        saved.getPatientName(),
+        saved.getDoctorName(),
+        saved.getSpeciality(),
+        saved.getScheduledAt(),
+        saved.getStatus(),
+        saved.getReason()
+    ));
+  }
+
+  private boolean isBlank(String value) {
+    return value == null || value.isBlank();
+  }
+
   public record MediSanteHomeResponse(
       String company,
       String label,
       int foundedYear,
       int employees,
+      String heroImageUrl,
       String companyStory,
       String platformOverview,
       List<MedicalServiceCard> services,
@@ -62,9 +134,29 @@ public class MediSanteController {
   ) {
   }
 
-  public record MedicalServiceCard(String title, String description, String category) {
+  public record MedicalServiceCard(String title, String description, String category, String imageUrl) {
   }
 
   public record OfficeCard(String city, String role, int employees) {
+  }
+
+  public record TeleconsultationCreateRequest(
+      String patientName,
+      String doctorName,
+      String speciality,
+      Instant scheduledAt,
+      String reason
+  ) {
+  }
+
+  public record TeleconsultationCard(
+      Long id,
+      String patientName,
+      String doctorName,
+      String speciality,
+      Instant scheduledAt,
+      String status,
+      String reason
+  ) {
   }
 }
