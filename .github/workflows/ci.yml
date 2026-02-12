@@ -130,7 +130,15 @@ jobs:
           exit-code: "1"
 
   terraform_infra:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test')
+    if: >
+      (
+        github.event_name == 'push' &&
+        (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test')
+      ) || (
+        github.event_name == 'pull_request' &&
+        (github.base_ref == 'main' || github.base_ref == 'test') &&
+        github.event.pull_request.head.repo.fork == false
+      )
     needs: image_security
     runs-on: ubuntu-latest
     concurrency:
@@ -153,7 +161,8 @@ jobs:
       - name: Resolve env
         id: vars
         run: |
-          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+          BRANCH="${GITHUB_BASE_REF:-${GITHUB_REF_NAME}}"
+          if [ "$BRANCH" = "main" ]; then
             echo "env_name=main" >> $GITHUB_OUTPUT
           else
             echo "env_name=test" >> $GITHUB_OUTPUT
@@ -192,7 +201,15 @@ jobs:
           echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
 
   deploy_aws_eks:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test')
+    if: >
+      (
+        github.event_name == 'push' &&
+        (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test')
+      ) || (
+        github.event_name == 'pull_request' &&
+        (github.base_ref == 'main' || github.base_ref == 'test') &&
+        github.event.pull_request.head.repo.fork == false
+      )
     needs: [image_security, terraform_infra]
     runs-on: ubuntu-latest
     steps:
@@ -207,7 +224,7 @@ jobs:
       - name: Resolve environment
         id: vars
         run: |
-          BRANCH="${GITHUB_REF_NAME}"
+          BRANCH="${GITHUB_BASE_REF:-${GITHUB_REF_NAME}}"
           if [ "$BRANCH" = "main" ]; then
             echo "namespace=demo-main" >> $GITHUB_OUTPUT
             echo "db_password=${{ secrets.DB_PASSWORD_MAIN }}" >> $GITHUB_OUTPUT
