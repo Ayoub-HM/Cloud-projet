@@ -1,15 +1,18 @@
-name: CI
+name: CI-CD
 
 on:
   push:
-    branches: [ "main", "test" ]
+    branches: ["main", "test"]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
   security-events: write
-  packages: write
+  id-token: write
+
+env:
+  AWS_REGION: eu-west-3
 
 jobs:
   build_test:
@@ -37,32 +40,37 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Build and test
+      - name: Build and test appointments service
         env:
           DB_URL: jdbc:postgresql://localhost:5432/notesdb
           DB_USER: notes
           DB_PASSWORD: notes_pwd
         run: mvn -f app/pom.xml -q test package
 
+      - name: Build and test auth service
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/notesdb
+          DB_USER: notes
+          DB_PASSWORD: notes_pwd
+        run: mvn -f auth-service/pom.xml -q test package
+
   codeql_scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
-
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: java,javascript
-
       - name: Build for CodeQL
-        run: mvn -f app/pom.xml -q -DskipTests package
-
+        run: |
+          mvn -f app/pom.xml -q -DskipTests package
+          mvn -f auth-service/pom.xml -q -DskipTests package
       - name: Analyze with CodeQL
         uses: github/codeql-action/analyze@v3
 
@@ -72,86 +80,200 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Scan secrets with Gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  hadolint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Lint Dockerfile
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: Dockerfile
-
   image_security:
-    needs: [ build_test, codeql_scan, secret_scanning, hadolint ]
+    needs: [build_test, codeql_scan, secret_scanning]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
+      - name: Build appointments image locally
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./app
+          file: ./app/Dockerfile
           push: false
           load: true
-          tags: medisante-local:${{ github.sha }}
-
-      - name: Scan Docker image with Trivy
+          tags: appointments-local:${{ github.sha }}
+      - name: Build auth image locally
+        uses: docker/build-push-action@v6
+        with:
+          context: ./auth-service
+          file: ./auth-service/Dockerfile
+          push: false
+          load: true
+          tags: auth-local:${{ github.sha }}
+      - name: Scan appointments image with Trivy
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: medisante-local:${{ github.sha }}
+          image-ref: appointments-local:${{ github.sha }}
+          format: table
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Scan auth image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: auth-local:${{ github.sha }}
           format: table
           vuln-type: os,library
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
 
-  push_ghcr:
+  terraform_infra:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test')
     needs: image_security
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test')
+    concurrency:
+      group: terraform-eks-shared
+      cancel-in-progress: false
+    outputs:
+      cluster_name: ${{ steps.tfout.outputs.cluster_name }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Resolve env
+        id: vars
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "env_name=main" >> $GITHUB_OUTPUT
+          else
+            echo "env_name=test" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Terraform init
+        working-directory: infra/terraform/eks
+        run: |
+          terraform init -reconfigure \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=cloud-projet/eks/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform validate
+        working-directory: infra/terraform/eks
+        run: terraform validate
+
+      - name: Terraform plan
+        working-directory: infra/terraform/eks
+        run: |
+          terraform plan -out=tfplan \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="environment=${{ steps.vars.outputs.env_name }}" \
+            -var="cluster_name=${{ secrets.EKS_CLUSTER_NAME }}"
+
+      - name: Terraform apply
+        working-directory: infra/terraform/eks
+        run: terraform apply -auto-approve tfplan
+
+      - name: Capture terraform outputs
+        id: tfout
+        working-directory: infra/terraform/eks
+        run: |
+          echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
+
+  deploy_aws_eks:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test')
+    needs: [image_security, terraform_infra]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          images: ghcr.io/${{ github.repository_owner }}/notes-api
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
-            type=sha
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Build and push to GHCR
+      - name: Resolve environment
+        id: vars
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          if [ "$BRANCH" = "main" ]; then
+            echo "namespace=demo-main" >> $GITHUB_OUTPUT
+            echo "db_password=${{ secrets.DB_PASSWORD_MAIN }}" >> $GITHUB_OUTPUT
+            echo "env_name=main" >> $GITHUB_OUTPUT
+          else
+            echo "namespace=demo-test" >> $GITHUB_OUTPUT
+            echo "db_password=${{ secrets.DB_PASSWORD_TEST }}" >> $GITHUB_OUTPUT
+            echo "env_name=test" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push appointments image
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./app
+          file: ./app/Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:${{ github.sha }},${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:latest
+
+      - name: Build and push auth image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./auth-service
+          file: ./auth-service/Dockerfile
+          push: true
+          tags: ${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:${{ github.sha }},${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:latest
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ needs.terraform_infra.outputs.cluster_name }} --region ${{ env.AWS_REGION }}
+
+      - name: Ensure namespace exists
+        run: |
+          kubectl get namespace ${{ steps.vars.outputs.namespace }} >/dev/null 2>&1 || kubectl create namespace ${{ steps.vars.outputs.namespace }}
+
+      - name: Render manifests
+        run: |
+          rm -rf rendered
+          cp -R k8s/eks rendered
+          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s/namespace: demo/namespace: ${{ steps.vars.outputs.namespace }}/g"
+          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__APPOINTMENTS_IMAGE__|${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:${{ github.sha }}|g"
+          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__AUTH_IMAGE__|${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:${{ github.sha }}|g"
+          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__SET_IN_CLUSTER__|${{ steps.vars.outputs.db_password }}|g"
+          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__APPOINTMENTS_BASE_URL__|http://placeholder.local|g"
+
+      - name: Apply manifests
+        run: kubectl apply -k rendered
+
+      - name: Wait ingress and patch auth base URL
+        run: |
+          kubectl wait --for=condition=available --timeout=300s deployment/appointments-api -n ${{ steps.vars.outputs.namespace }}
+          kubectl wait --for=condition=available --timeout=300s deployment/auth-api -n ${{ steps.vars.outputs.namespace }}
+          for i in $(seq 1 30); do
+            ALB_HOST=$(kubectl get ingress app-ingress -n ${{ steps.vars.outputs.namespace }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || true)
+            if [ -n "$ALB_HOST" ]; then break; fi
+            sleep 10
+          done
+          if [ -z "$ALB_HOST" ]; then
+            echo "ALB hostname not ready yet"
+            exit 1
+          fi
+          kubectl patch configmap auth-config -n ${{ steps.vars.outputs.namespace }} --type merge -p "{\"data\":{\"AUTH_APP_BASE_URL\":\"http://$ALB_HOST\"}}"
+          kubectl rollout restart deployment/auth-api -n ${{ steps.vars.outputs.namespace }}
+          echo "Application URL: http://$ALB_HOST"

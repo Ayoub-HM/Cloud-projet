@@ -1,0 +1,50 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  namespace: demo
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /actuator/health
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /api/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-api
+                port:
+                  number: 80
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-api
+                port:
+                  number: 80
+          - path: /auth.css
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-api
+                port:
+                  number: 80
+          - path: /auth.js
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-api
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: appointments-api
+                port:
+                  number: 80

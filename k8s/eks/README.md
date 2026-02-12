@@ -1,39 +1,30 @@
-# Deploiement applicatif sur EKS
+# Deploiement EKS avec ALB Ingress (option 2)
 
-## 1) Remplacer les images ECR
+Cette stack expose l'application avec **un seul ALB**:
+- `/` vers `appointments-api`
+- `/api/auth`, `/auth`, `/auth.js`, `/auth.css` vers `auth-api`
 
-Dans `07-api-deployment.yaml` et `11-auth-deployment.yaml`, remplacer:
+## Prerequis importants
+
+1. AWS Load Balancer Controller installe dans le cluster EKS.
+2. Les images ECR existent.
+3. Les secrets DB sont renseignes.
+
+## Placeholders a remplacer
+
+Dans les manifests:
 - `__APPOINTMENTS_IMAGE__`
 - `__AUTH_IMAGE__`
+- `__SET_IN_CLUSTER__`
+- `__APPOINTMENTS_BASE_URL__` (sera mis automatiquement par workflow apres creation ALB)
 
-Exemple:
-- `<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/cloud-projet-test/appointments-api:latest`
-- `<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/cloud-projet-test/auth-api:latest`
+## Deploiement manuel (si besoin)
 
-## 2) Mettre le mot de passe DB
-
-Mettre une vraie valeur dans:
-- `01-postgres-secret.yaml` (`POSTGRES_PASSWORD`)
-- `06-api-secret.yaml` (`DB_PASSWORD`)
-- `10-auth-secret.yaml` (`DB_PASSWORD`)
-
-## 3) Appliquer les manifests
+`kubectl create namespace demo-test`
 
 `kubectl apply -k k8s/eks`
 
-## 4) Recuperer les URLs externes
+Recuperer le DNS ALB:
+`kubectl get ingress app-ingress -n demo-test`
 
-`kubectl get svc -n demo`
-
-Tu obtiendras 2 LoadBalancers:
-- `appointments-api`
-- `auth-api`
-
-## 5) Configurer l'URL de redirection auth
-
-Mettre dans `09-auth-configmap.yaml`:
-- `AUTH_APP_BASE_URL: http://<EXTERNAL_DNS_APPOINTMENTS>`
-
-Puis reappliquer:
-- `kubectl apply -f k8s/eks/09-auth-configmap.yaml`
-- `kubectl rollout restart deployment/auth-api -n demo`
+Puis mettre `AUTH_APP_BASE_URL` avec ce DNS et redemarrer `auth-api`.

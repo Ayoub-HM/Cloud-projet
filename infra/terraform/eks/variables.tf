@@ -49,23 +49,23 @@ variable "private_subnet_cidrs" {
 variable "node_instance_types" {
   description = "EC2 instance types for managed node group"
   type        = list(string)
-  default     = ["t3.medium"]
+  default     = ["t3.micro"]
 }
 
 variable "node_desired_size" {
   description = "Desired node count"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "node_min_size" {
   description = "Minimum node count"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "node_max_size" {
   description = "Maximum node count"
   type        = number
-  default     = 4
+  default     = 2
 }

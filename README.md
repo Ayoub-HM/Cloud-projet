@@ -50,7 +50,12 @@ Terraform infra:
 Manifestes Kubernetes cibles EKS:
 - `k8s/eks`
 
-### Etapes rapides
+### Cible AWS
+- Region: `eu-west-3` (Paris)
+- Branches/environnements: `test` et `main`
+- Exposition: Ingress ALB unique (option 2)
+
+### Etapes rapides (manuel)
 
 1. Provisionner EKS/VPC/ECR:
 `cd infra/terraform/eks`
@@ -60,8 +65,26 @@ Manifestes Kubernetes cibles EKS:
 2. Configurer kubectl:
 `aws eks update-kubeconfig --region <AWS_REGION> --name <CLUSTER_NAME>`
 
-3. Builder/pusher les images dans ECR:
+3. Installer AWS Load Balancer Controller:
+`./scripts/aws/install-alb-controller.sh <CLUSTER_NAME> <AWS_REGION> <VPC_ID>`
+
+4. Builder/pusher les images dans ECR:
 `./scripts/aws/push-ecr.ps1 -Region <AWS_REGION> -Environment test -Tag latest`
 
-4. Injecter les URLs ECR et les secrets dans `k8s/eks/*.yaml`, puis deploy:
+5. Injecter les URLs ECR et les secrets dans `k8s/eks/*.yaml`, puis deploy:
 `kubectl apply -k k8s/eks`
+
+### CI/CD GitHub Actions vers AWS
+
+Le workflow `.github/workflows/ci.yml` pousse sur ECR et deploie sur EKS pour les branches `test` et `main`.
+
+Secrets GitHub a configurer:
+- `AWS_ROLE_TO_ASSUME` (role IAM pour OIDC GitHub Actions)
+- `EKS_CLUSTER_NAME`
+- `TF_STATE_BUCKET` (bucket S3 pour l'etat Terraform)
+- `TF_LOCK_TABLE` (table DynamoDB pour lock Terraform)
+- `DB_PASSWORD_TEST`
+- `DB_PASSWORD_MAIN`
+
+Astuce mot de passe fort:
+- utilise au minimum 16 caracteres (majuscule, minuscule, chiffre, symbole).
