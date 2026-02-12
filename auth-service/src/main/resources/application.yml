@@ -15,6 +15,7 @@ spring:
 
 auth:
   token-ttl-seconds: ${AUTH_TOKEN_TTL_SECONDS:3600}
+  app-base-url: ${AUTH_APP_BASE_URL:http://localhost:8080}
 
 management:
   endpoint:

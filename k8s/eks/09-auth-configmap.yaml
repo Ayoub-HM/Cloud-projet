@@ -6,4 +6,4 @@ metadata:
 data:
   DB_URL: jdbc:postgresql://postgres:5432/demo
   AUTH_TOKEN_TTL_SECONDS: "3600"
-  AUTH_APP_BASE_URL: http://appointments-api
+  AUTH_APP_BASE_URL: __APPOINTMENTS_BASE_URL__

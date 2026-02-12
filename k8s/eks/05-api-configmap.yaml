@@ -1,9 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: auth-config
+  name: appointments-config
   namespace: demo
 data:
   DB_URL: jdbc:postgresql://postgres:5432/demo
-  AUTH_TOKEN_TTL_SECONDS: "3600"
-  AUTH_APP_BASE_URL: http://appointments-api

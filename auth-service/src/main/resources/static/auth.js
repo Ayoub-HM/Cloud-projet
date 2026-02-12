@@ -1,6 +1,7 @@
 const LOGIN_ENDPOINT = "/api/auth/login";
 const SIGNUP_ENDPOINT = "/api/auth/signup";
-const HOME_URL = "http://localhost:8080/#home";
+const CONFIG_ENDPOINT = "/api/auth/config";
+let appBaseUrl = "http://localhost:8080";
 
 const form = document.getElementById("loginForm");
 const formTitle = document.getElementById("formTitle");
@@ -8,6 +9,7 @@ const modeLoginBtn = document.getElementById("modeLoginBtn");
 const modeSignupBtn = document.getElementById("modeSignupBtn");
 const message = document.getElementById("message");
 const submitBtn = document.getElementById("submitBtn");
+const actionLinks = Array.from(document.querySelectorAll(".link-btn"));
 
 let mode = "login";
 
@@ -49,6 +51,29 @@ async function postJson(url, payload) {
   return body;
 }
 
+async function loadConfig() {
+  try {
+    const response = await fetch(CONFIG_ENDPOINT);
+    if (!response.ok) {
+      return;
+    }
+    const data = await response.json();
+    if (data && typeof data.appBaseUrl === "string" && data.appBaseUrl.trim() !== "") {
+      appBaseUrl = data.appBaseUrl.trim().replace(/\/$/, "");
+    }
+  } catch (_error) {
+    // keep default local URL
+  }
+
+  actionLinks.forEach((link) => {
+    const target = link.getAttribute("data-target");
+    if (!target) {
+      return;
+    }
+    link.setAttribute("href", `${appBaseUrl}${target}`);
+  });
+}
+
 modeLoginBtn.addEventListener("click", () => setMode("login"));
 modeSignupBtn.addEventListener("click", () => setMode("signup"));
 
@@ -82,10 +107,12 @@ form.addEventListener("submit", async (event) => {
       localStorage.setItem("medisante_auth_token", data.token);
     }
     showMessage("Connexion reussie. Redirection...", "ok");
-    window.location.href = HOME_URL;
+    window.location.href = `${appBaseUrl}/#home`;
   } catch (error) {
     showMessage(error instanceof Error ? error.message : "Erreur", "err");
   } finally {
     submitBtn.disabled = false;
   }
 });
+
+loadConfig();

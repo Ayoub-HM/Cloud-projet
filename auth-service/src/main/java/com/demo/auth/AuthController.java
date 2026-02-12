@@ -26,14 +26,17 @@ public class AuthController {
   private final PasswordEncoder passwordEncoder;
   private final ConcurrentHashMap<String, Session> sessions = new ConcurrentHashMap<>();
   private final long tokenTtlSeconds;
+  private final String appBaseUrl;
 
   public AuthController(
       UserAccountRepository userAccountRepository,
-      @Value("${auth.token-ttl-seconds:3600}") long tokenTtlSeconds
+      @Value("${auth.token-ttl-seconds:3600}") long tokenTtlSeconds,
+      @Value("${auth.app-base-url:http://localhost:8080}") String appBaseUrl
   ) {
     this.userAccountRepository = userAccountRepository;
     this.passwordEncoder = new BCryptPasswordEncoder();
     this.tokenTtlSeconds = tokenTtlSeconds;
+    this.appBaseUrl = appBaseUrl;
   }
 
   @PostMapping("/signup")
@@ -94,6 +97,11 @@ public class AuthController {
       return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("valid", false));
     }
     return ResponseEntity.ok(Map.of("valid", true, "username", session.username()));
+  }
+
+  @GetMapping("/config")
+  public ResponseEntity<?> config() {
+    return ResponseEntity.ok(Map.of("appBaseUrl", appBaseUrl));
   }
 
   private boolean isBlank(String value) {

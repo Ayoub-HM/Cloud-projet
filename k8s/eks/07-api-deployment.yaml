@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appointments-api
+  namespace: demo
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: appointments-api
+  template:
+    metadata:
+      labels:
+        app: appointments-api
+    spec:
+      containers:
+        - name: appointments-api
+          image: __APPOINTMENTS_IMAGE__
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: appointments-config
+            - secretRef:
+                name: appointments-secret
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10

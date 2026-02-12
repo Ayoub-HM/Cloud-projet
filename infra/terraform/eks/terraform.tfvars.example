@@ -1,0 +1,14 @@
+aws_region         = "eu-west-3"
+project_name       = "cloud-projet"
+environment        = "test"
+cluster_name       = "cloud-projet-eks"
+kubernetes_version = "1.31"
+
+vpc_cidr            = "10.20.0.0/16"
+public_subnet_cidrs = ["10.20.0.0/24", "10.20.1.0/24"]
+private_subnet_cidrs = ["10.20.10.0/24", "10.20.11.0/24"]
+
+node_instance_types = ["t3.medium"]
+node_desired_size   = 2
+node_min_size       = 2
+node_max_size       = 4

@@ -41,3 +41,27 @@ Haute disponibilite:
 Important securite:
 - les mots de passe ne sont plus hardcodes dans le code.
 - definir les secrets avant de lancer (`POSTGRES_PASSWORD` en local, valeurs `__SET_IN_CLUSTER__` a remplacer en Kubernetes).
+
+## Migration AWS EKS + Terraform
+
+Terraform infra:
+- `infra/terraform/eks`
+
+Manifestes Kubernetes cibles EKS:
+- `k8s/eks`
+
+### Etapes rapides
+
+1. Provisionner EKS/VPC/ECR:
+`cd infra/terraform/eks`
+`cp terraform.tfvars.example terraform.tfvars`
+`terraform init && terraform apply`
+
+2. Configurer kubectl:
+`aws eks update-kubeconfig --region <AWS_REGION> --name <CLUSTER_NAME>`
+
+3. Builder/pusher les images dans ECR:
+`./scripts/aws/push-ecr.ps1 -Region <AWS_REGION> -Environment test -Tag latest`
+
+4. Injecter les URLs ECR et les secrets dans `k8s/eks/*.yaml`, puis deploy:
+`kubectl apply -k k8s/eks`
