@@ -4,20 +4,36 @@ services:
     environment:
       POSTGRES_DB: notesdb
       POSTGRES_USER: notes
-      POSTGRES_PASSWORD: notes_pwd
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
   api:
-    build: .
+    build:
+      context: ./app
+      dockerfile: Dockerfile
     environment:
       DB_URL: jdbc:postgresql://db:5432/notesdb
       DB_USER: notes
-      DB_PASSWORD: notes_pwd
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env}
     ports:
       - "8080:8080"
+    depends_on:
+      - db
+
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/notesdb
+      DB_USER: notes
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env}
+      AUTH_TOKEN_TTL_SECONDS: 3600
+    ports:
+      - "8081:8081"
     depends_on:
       - db
 

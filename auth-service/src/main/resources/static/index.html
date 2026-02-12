@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Auth | MediSante+</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/auth.css" />
+</head>
+<body>
+  <main class="page">
+    <section class="card">
+      <p class="pill">Microservice Auth</p>
+      <h1 id="formTitle">Connexion MediSante+</h1>
+      <p class="subtitle">Authentifiez-vous ou creez un compte, puis accedez directement a l'accueil ou aux rendez-vous.</p>
+
+      <div class="mode-switch" role="tablist" aria-label="Mode d'authentification">
+        <button id="modeLoginBtn" class="mode-btn active" type="button">Login</button>
+        <button id="modeSignupBtn" class="mode-btn" type="button">Sign up</button>
+      </div>
+
+      <form id="loginForm" novalidate>
+        <label>
+          <span>Nom d'utilisateur</span>
+          <input id="username" name="username" autocomplete="username" required />
+        </label>
+        <label>
+          <span>Mot de passe</span>
+          <input id="password" name="password" type="password" autocomplete="new-password" required />
+        </label>
+        <button id="submitBtn" type="submit">Se connecter</button>
+      </form>
+
+      <p id="message" class="message"></p>
+
+      <div class="actions">
+        <a class="link-btn" href="http://localhost:8080/#home">Aller a l'accueil</a>
+        <a class="link-btn" href="http://localhost:8080/#rendezvous">Aller aux rendez-vous</a>
+      </div>
+    </section>
+  </main>
+
+  <script src="/auth.js"></script>
+</body>
+</html>

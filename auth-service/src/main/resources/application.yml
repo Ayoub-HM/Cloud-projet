@@ -1,17 +1,20 @@
 server:
-  port: 8080
+  port: 8081
 
 spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/notesdb}
     username: ${DB_USER:notes}
-    password: ${DB_PASSWORD:notes_pwd}
+    password: ${DB_PASSWORD:}
   jpa:
     hibernate:
       ddl-auto: update
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
+
+auth:
+  token-ttl-seconds: ${AUTH_TOKEN_TTL_SECONDS:3600}
 
 management:
   endpoint:
