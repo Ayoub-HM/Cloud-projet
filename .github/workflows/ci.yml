@@ -129,9 +129,52 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
-  terraform_infra:
+
+  deploy_precheck:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test')
     needs: image_security
+    runs-on: ubuntu-latest
+    outputs:
+      terraform_ready: ${{ steps.check.outputs.terraform_ready }}
+      deploy_ready: ${{ steps.check.outputs.deploy_ready }}
+    steps:
+      - name: Check required deployment secrets
+        id: check
+        env:
+          AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+          EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+          DB_PASSWORD_MAIN: ${{ secrets.DB_PASSWORD_MAIN }}
+          DB_PASSWORD_TEST: ${{ secrets.DB_PASSWORD_TEST }}
+        run: |
+          terraform_ready=true
+          deploy_ready=true
+
+          [ -n "$AWS_ROLE_TO_ASSUME" ] || terraform_ready=false
+          [ -n "$TF_STATE_BUCKET" ] || terraform_ready=false
+          [ -n "$TF_LOCK_TABLE" ] || terraform_ready=false
+          [ -n "$EKS_CLUSTER_NAME" ] || terraform_ready=false
+
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            [ -n "$DB_PASSWORD_MAIN" ] || deploy_ready=false
+          else
+            [ -n "$DB_PASSWORD_TEST" ] || deploy_ready=false
+          fi
+
+          if [ "$terraform_ready" != "true" ]; then
+            deploy_ready=false
+            echo "::notice::Skipping terraform/deploy jobs because one or more required secrets are missing."
+          elif [ "$deploy_ready" != "true" ]; then
+            echo "::notice::Skipping deploy job because branch-specific DB password secret is missing."
+          fi
+
+          echo "terraform_ready=$terraform_ready" >> "$GITHUB_OUTPUT"
+          echo "deploy_ready=$deploy_ready" >> "$GITHUB_OUTPUT"
+
+  terraform_infra:
+    if: needs.deploy_precheck.outputs.terraform_ready == 'true'
+    needs: [image_security, deploy_precheck]
     runs-on: ubuntu-latest
     concurrency:
       group: terraform-eks-shared
@@ -192,8 +235,8 @@ jobs:
           echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
 
   deploy_aws_eks:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test')
-    needs: [image_security, terraform_infra]
+    if: needs.deploy_precheck.outputs.deploy_ready == 'true'
+    needs: [image_security, deploy_precheck, terraform_infra]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
