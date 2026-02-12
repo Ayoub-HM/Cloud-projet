@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: api-config
+  name: appointments-config
   namespace: demo
 data:
   DB_URL: jdbc:postgresql://postgres:5432/demo

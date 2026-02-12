@@ -1,0 +1,17 @@
+server:
+  port: 8081
+
+auth:
+  username: ${AUTH_USERNAME:admin}
+  password: ${AUTH_PASSWORD:admin123}
+  static-token: ${AUTH_STATIC_TOKEN:medisante-token}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info

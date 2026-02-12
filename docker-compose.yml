@@ -10,8 +10,10 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
-  api:
-    build: .
+  appointments-service:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
     environment:
       DB_URL: jdbc:postgresql://db:5432/notesdb
       DB_USER: notes
@@ -20,6 +22,17 @@ services:
       - "8080:8080"
     depends_on:
       - db
+
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    environment:
+      AUTH_USERNAME: admin
+      AUTH_PASSWORD: admin123
+      AUTH_STATIC_TOKEN: medisante-token
+    ports:
+      - "8081:8081"
 
 volumes:
   pgdata:

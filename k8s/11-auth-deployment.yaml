@@ -1,38 +1,38 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: appointments-api
+  name: auth-api
   namespace: demo
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: appointments-api
+      app: auth-api
   template:
     metadata:
       labels:
-        app: appointments-api
+        app: auth-api
     spec:
       containers:
-        - name: appointments-api
-          image: yourdockerhub/appointments-api:1.0.0
+        - name: auth-api
+          image: yourdockerhub/auth-api:1.0.0
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8080
+            - containerPort: 8081
           envFrom:
             - configMapRef:
-                name: appointments-config
+                name: auth-config
             - secretRef:
-                name: appointments-secret
+                name: auth-secret
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
-              port: 8080
+              port: 8081
             initialDelaySeconds: 10
             periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
-              port: 8080
+              port: 8081
             initialDelaySeconds: 20
             periodSeconds: 10
