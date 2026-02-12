@@ -134,6 +134,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       deploy_enabled: ${{ steps.precheck.outputs.deploy_enabled }}
+      deploy_reason: ${{ steps.precheck.outputs.deploy_reason }}
     steps:
       - name: Evaluate deploy prerequisites
         id: precheck
@@ -153,8 +154,15 @@ jobs:
             ALLOWED_EVENT=true
           fi
 
+          REQUIRED_VARS="AWS_ROLE_TO_ASSUME TF_STATE_BUCKET TF_LOCK_TABLE EKS_CLUSTER_NAME"
+          if [ "$BRANCH" = "main" ]; then
+            REQUIRED_VARS="$REQUIRED_VARS DB_PASSWORD_MAIN"
+          elif [ "$BRANCH" = "test" ]; then
+            REQUIRED_VARS="$REQUIRED_VARS DB_PASSWORD_TEST"
+          fi
+
           MISSING=""
-          for v in AWS_ROLE_TO_ASSUME TF_STATE_BUCKET TF_LOCK_TABLE EKS_CLUSTER_NAME DB_PASSWORD_MAIN DB_PASSWORD_TEST; do
+          for v in $REQUIRED_VARS; do
             if [ -z "${!v}" ]; then
               MISSING="$MISSING $v"
             fi
@@ -162,16 +170,21 @@ jobs:
 
           if [ "$ALLOWED_EVENT" = "true" ] && [ -z "$MISSING" ]; then
             echo "deploy_enabled=true" >> "$GITHUB_OUTPUT"
+            echo "deploy_reason=ok" >> "$GITHUB_OUTPUT"
             echo "Deploy precheck passed."
           else
             echo "deploy_enabled=false" >> "$GITHUB_OUTPUT"
+            REASON="precheck_blocked"
             echo "Deploy precheck failed or not applicable."
             if [ "$ALLOWED_EVENT" != "true" ]; then
               echo "Reason: event/branch not eligible for deploy."
+              REASON="event_or_branch_not_eligible"
             fi
             if [ -n "$MISSING" ]; then
               echo "Reason: missing required secrets:$MISSING"
+              REASON="missing_required_secrets:$MISSING"
             fi
+            echo "deploy_reason=$REASON" >> "$GITHUB_OUTPUT"
           fi
 
   terraform_infra:
