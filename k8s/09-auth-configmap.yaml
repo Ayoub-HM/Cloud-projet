@@ -4,4 +4,5 @@ metadata:
   name: auth-config
   namespace: demo
 data:
-  AUTH_USERNAME: admin
+  DB_URL: jdbc:postgresql://postgres:5432/demo
+  AUTH_TOKEN_TTL_SECONDS: "3600"

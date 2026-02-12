@@ -15,7 +15,7 @@ Service auth:
 ## Docker Compose
 
 Lance Postgres + les 2 microservices:
-`docker compose up --build`
+`$env:POSTGRES_PASSWORD="change-me"; docker compose up --build`
 
 ## Kubernetes
 
@@ -37,3 +37,7 @@ Appliquer les manifests dans l'ordre:
 Haute disponibilite:
 - `appointments-api` replica sur `3` pods
 - `auth-api` replica sur `3` pods
+
+Important securite:
+- les mots de passe ne sont plus hardcodes dans le code.
+- definir les secrets avant de lancer (`POSTGRES_PASSWORD` en local, valeurs `__SET_IN_CLUSTER__` a remplacer en Kubernetes).
