@@ -563,7 +563,7 @@ jobs:
           fi
 
           for i in $(seq 1 30); do
-            READY_NODES="$(kubectl get nodes --no-headers 2>/dev/null | awk '$2=="Ready" {c++} END {print c+0}')"
+            READY_NODES="$(kubectl get nodes --no-headers 2>/dev/null | grep -c ' Ready ')"
             if [ "${READY_NODES}" -ge 2 ]; then
               break
             fi
