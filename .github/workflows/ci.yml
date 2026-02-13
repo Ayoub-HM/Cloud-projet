@@ -535,27 +535,28 @@ jobs:
           set -euo pipefail
           CLUSTER_NAME="${{ steps.cluster.outputs.cluster_name }}"
           NODEGROUP_NAME="cloud-projet-${{ steps.vars.outputs.env_name }}-ng"
+          TARGET_NODES=3
 
           MIN_SIZE="$(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" --nodegroup-name "${NODEGROUP_NAME}" --region "${AWS_REGION}" --query 'nodegroup.scalingConfig.minSize' --output text)"
           MAX_SIZE="$(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" --nodegroup-name "${NODEGROUP_NAME}" --region "${AWS_REGION}" --query 'nodegroup.scalingConfig.maxSize' --output text)"
           DESIRED_SIZE="$(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" --nodegroup-name "${NODEGROUP_NAME}" --region "${AWS_REGION}" --query 'nodegroup.scalingConfig.desiredSize' --output text)"
 
-          if [ "${MAX_SIZE}" -lt 2 ]; then
-            echo "Nodegroup ${NODEGROUP_NAME} maxSize=${MAX_SIZE} is too low. Set maxSize>=2 in Terraform."
+          if [ "${MAX_SIZE}" -lt "${TARGET_NODES}" ]; then
+            echo "Nodegroup ${NODEGROUP_NAME} maxSize=${MAX_SIZE} is too low. Set maxSize>=${TARGET_NODES} in Terraform."
             exit 1
           fi
 
           TARGET_MIN="${MIN_SIZE}"
-          if [ "${TARGET_MIN}" -lt 2 ]; then
-            TARGET_MIN=2
+          if [ "${TARGET_MIN}" -lt "${TARGET_NODES}" ]; then
+            TARGET_MIN="${TARGET_NODES}"
           fi
 
-          if [ "${DESIRED_SIZE}" -lt 2 ] || [ "${MIN_SIZE}" -lt 2 ]; then
+          if [ "${DESIRED_SIZE}" -lt "${TARGET_NODES}" ] || [ "${MIN_SIZE}" -lt "${TARGET_NODES}" ]; then
             aws eks update-nodegroup-config \
               --cluster-name "${CLUSTER_NAME}" \
               --nodegroup-name "${NODEGROUP_NAME}" \
               --region "${AWS_REGION}" \
-              --scaling-config minSize="${TARGET_MIN}",maxSize="${MAX_SIZE}",desiredSize=2
+              --scaling-config minSize="${TARGET_MIN}",maxSize="${MAX_SIZE}",desiredSize="${TARGET_NODES}"
             aws eks wait nodegroup-active \
               --cluster-name "${CLUSTER_NAME}" \
               --nodegroup-name "${NODEGROUP_NAME}" \
@@ -564,14 +565,14 @@ jobs:
 
           for i in $(seq 1 30); do
             READY_NODES="$(kubectl get nodes --no-headers 2>/dev/null | grep -c ' Ready ')"
-            if [ "${READY_NODES}" -ge 2 ]; then
+            if [ "${READY_NODES}" -ge "${TARGET_NODES}" ]; then
               break
             fi
             sleep 10
           done
 
-          if [ "${READY_NODES}" -lt 2 ]; then
-            echo "Timed out waiting for at least 2 Ready nodes. Current Ready nodes: ${READY_NODES}"
+          if [ "${READY_NODES}" -lt "${TARGET_NODES}" ]; then
+            echo "Timed out waiting for at least ${TARGET_NODES} Ready nodes. Current Ready nodes: ${READY_NODES}"
             kubectl get nodes -o wide || true
             exit 1
           fi
