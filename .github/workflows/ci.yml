@@ -712,6 +712,26 @@ jobs:
             kubectl get events -n "${NS}" --sort-by=.metadata.creationTimestamp | tail -n 80 || true
           }
 
+          if ! kubectl get storageclass gp3 >/dev/null 2>&1; then
+            echo "StorageClass gp3 not found; creating cloud-projet-gp3 for EBS CSI."
+            cat <<'EOF' | kubectl apply -f -
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: cloud-projet-gp3
+          provisioner: ebs.csi.aws.com
+          volumeBindingMode: WaitForFirstConsumer
+          parameters:
+            type: gp3
+            fsType: ext4
+          allowVolumeExpansion: true
+          EOF
+            SC_NAME="cloud-projet-gp3"
+          else
+            SC_NAME="gp3"
+          fi
+
+          sed -i "s/storageClassName: gp3/storageClassName: ${SC_NAME}/" rendered/02-postgres-pvc.yaml
           kubectl apply -f rendered/01-postgres-secret.yaml
           kubectl apply -f rendered/02-postgres-pvc.yaml
           kubectl apply -f rendered/03-postgres-deployment.yaml
