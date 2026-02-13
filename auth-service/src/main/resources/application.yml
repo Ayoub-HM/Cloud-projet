@@ -16,6 +16,18 @@ spring:
 auth:
   token-ttl-seconds: ${AUTH_TOKEN_TTL_SECONDS:3600}
   app-base-url: ${AUTH_APP_BASE_URL:http://localhost:8080}
+  token-issuer: ${AUTH_TOKEN_ISSUER:auth-service}
+  jwt-secret: ${AUTH_JWT_SECRET:dev-only-please-change-this-jwt-secret-32chars}
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  pattern:
+    level: "%5p [req:%X{requestId:-}]"
 
 management:
   endpoint:

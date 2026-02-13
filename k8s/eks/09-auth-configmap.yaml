@@ -6,5 +6,6 @@ metadata:
 data:
   DB_URL: jdbc:postgresql://postgres:5432/demo
   JPA_DDL_AUTO: validate
+  AUTH_TOKEN_ISSUER: auth-service
   AUTH_TOKEN_TTL_SECONDS: "3600"
   AUTH_APP_BASE_URL: __APPOINTMENTS_BASE_URL__

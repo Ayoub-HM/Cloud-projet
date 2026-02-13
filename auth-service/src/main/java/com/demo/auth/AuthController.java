@@ -1,7 +1,8 @@
 package com.demo.auth;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,33 +17,47 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
 import java.util.Map;
-import java.util.UUID;
+import java.util.Optional;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+  private static final Base64.Encoder BASE64_URL_ENCODER = Base64.getUrlEncoder().withoutPadding();
+  private static final Base64.Decoder BASE64_URL_DECODER = Base64.getUrlDecoder();
+  private static final String HMAC_ALGORITHM = "HmacSHA256";
+
   private final UserAccountRepository userAccountRepository;
   private final PasswordEncoder passwordEncoder;
-  private final Cache<String, Session> sessions;
+  private final ObjectMapper objectMapper;
   private final long tokenTtlSeconds;
   private final String appBaseUrl;
+  private final String tokenIssuer;
+  private final byte[] jwtSecret;
 
   public AuthController(
       UserAccountRepository userAccountRepository,
+      ObjectMapper objectMapper,
       @Value("${auth.token-ttl-seconds:3600}") long tokenTtlSeconds,
-      @Value("${auth.app-base-url:http://localhost:8080}") String appBaseUrl
+      @Value("${auth.app-base-url:http://localhost:8080}") String appBaseUrl,
+      @Value("${auth.token-issuer:auth-service}") String tokenIssuer,
+      @Value("${auth.jwt-secret:dev-only-please-change-this-jwt-secret-32chars}") String jwtSecret
   ) {
     this.userAccountRepository = userAccountRepository;
     this.passwordEncoder = new BCryptPasswordEncoder();
+    this.objectMapper = objectMapper;
     this.tokenTtlSeconds = Math.max(60, tokenTtlSeconds);
-    this.sessions = Caffeine.newBuilder()
-        .maximumSize(100_000)
-        .expireAfterWrite(Duration.ofSeconds(this.tokenTtlSeconds))
-        .build();
     this.appBaseUrl = appBaseUrl;
+    this.tokenIssuer = tokenIssuer;
+    this.jwtSecret = normalizeJwtSecret(jwtSecret);
   }
 
   @PostMapping("/signup")
@@ -84,9 +99,14 @@ public class AuthController {
       return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "invalid credentials"));
     }
 
-    Instant expiresAt = Instant.now().plusSeconds(tokenTtlSeconds);
-    String token = UUID.randomUUID().toString();
-    sessions.put(token, new Session(username, expiresAt));
+    Instant issuedAt = Instant.now();
+    Instant expiresAt = issuedAt.plusSeconds(tokenTtlSeconds);
+    String token;
+    try {
+      token = issueToken(username, issuedAt, expiresAt);
+    } catch (JsonProcessingException e) {
+      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "token generation failed"));
+    }
 
     return ResponseEntity.ok(Map.of(
         "token", token,
@@ -97,12 +117,11 @@ public class AuthController {
 
   @GetMapping("/validate")
   public ResponseEntity<?> validate(@RequestParam String token) {
-    Session session = sessions.getIfPresent(token);
-    if (session == null || session.expiresAt().isBefore(Instant.now())) {
-      sessions.invalidate(token);
+    Optional<TokenClaims> claims = parseAndValidateToken(token);
+    if (claims.isEmpty()) {
       return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("valid", false));
     }
-    return ResponseEntity.ok(Map.of("valid", true, "username", session.username()));
+    return ResponseEntity.ok(Map.of("valid", true, "username", claims.get().username()));
   }
 
   @GetMapping("/config")
@@ -112,6 +131,81 @@ public class AuthController {
 
   private boolean isBlank(String value) {
     return value == null || value.isBlank();
+  }
+
+  private String issueToken(String username, Instant issuedAt, Instant expiresAt) throws JsonProcessingException {
+    String header = encodeJson(Map.of("alg", "HS256", "typ", "JWT"));
+    String payload = encodeJson(Map.of(
+        "sub", username,
+        "iss", tokenIssuer,
+        "iat", issuedAt.getEpochSecond(),
+        "exp", expiresAt.getEpochSecond()
+    ));
+    String signature = sign(header + "." + payload);
+    return header + "." + payload + "." + signature;
+  }
+
+  private Optional<TokenClaims> parseAndValidateToken(String token) {
+    if (isBlank(token)) {
+      return Optional.empty();
+    }
+
+    String[] parts = token.trim().split("\\.");
+    if (parts.length != 3) {
+      return Optional.empty();
+    }
+
+    String signedValue = parts[0] + "." + parts[1];
+    String expectedSignature = sign(signedValue);
+    if (!MessageDigest.isEqual(
+        expectedSignature.getBytes(StandardCharsets.US_ASCII),
+        parts[2].getBytes(StandardCharsets.US_ASCII))) {
+      return Optional.empty();
+    }
+
+    try {
+      String payloadJson = new String(BASE64_URL_DECODER.decode(parts[1]), StandardCharsets.UTF_8);
+      JsonNode payloadNode = objectMapper.readTree(payloadJson);
+      String username = payloadNode.path("sub").asText("");
+      String issuer = payloadNode.path("iss").asText("");
+      long expiresAtEpoch = payloadNode.path("exp").asLong(0);
+
+      if (isBlank(username) || isBlank(issuer) || !tokenIssuer.equals(issuer)) {
+        return Optional.empty();
+      }
+      if (expiresAtEpoch <= Instant.now().getEpochSecond()) {
+        return Optional.empty();
+      }
+
+      return Optional.of(new TokenClaims(username));
+    } catch (IllegalArgumentException | JsonProcessingException e) {
+      return Optional.empty();
+    }
+  }
+
+  private String encodeJson(Map<String, Object> payload) throws JsonProcessingException {
+    return BASE64_URL_ENCODER.encodeToString(objectMapper.writeValueAsBytes(payload));
+  }
+
+  private String sign(String value) {
+    try {
+      Mac mac = Mac.getInstance(HMAC_ALGORITHM);
+      mac.init(new SecretKeySpec(jwtSecret, HMAC_ALGORITHM));
+      return BASE64_URL_ENCODER.encodeToString(mac.doFinal(value.getBytes(StandardCharsets.UTF_8)));
+    } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+      throw new IllegalStateException("Unable to sign JWT", e);
+    }
+  }
+
+  private byte[] normalizeJwtSecret(String rawSecret) {
+    if (isBlank(rawSecret)) {
+      throw new IllegalArgumentException("auth.jwt-secret is required");
+    }
+    byte[] secretBytes = rawSecret.trim().getBytes(StandardCharsets.UTF_8);
+    if (secretBytes.length < 32) {
+      throw new IllegalArgumentException("auth.jwt-secret must be at least 32 characters");
+    }
+    return secretBytes;
   }
 
   public record SignupRequest(
@@ -126,6 +220,6 @@ public class AuthController {
   ) {
   }
 
-  private record Session(String username, Instant expiresAt) {
+  private record TokenClaims(String username) {
   }
 }

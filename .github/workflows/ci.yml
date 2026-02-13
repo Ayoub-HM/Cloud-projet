@@ -149,6 +149,8 @@ jobs:
           EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
           DB_PASSWORD_MAIN: ${{ secrets.DB_PASSWORD_MAIN }}
           DB_PASSWORD_TEST: ${{ secrets.DB_PASSWORD_TEST }}
+          AUTH_JWT_SECRET_MAIN: ${{ secrets.AUTH_JWT_SECRET_MAIN }}
+          AUTH_JWT_SECRET_TEST: ${{ secrets.AUTH_JWT_SECRET_TEST }}
         run: |
           BRANCH="${GITHUB_BASE_REF:-${GITHUB_REF_NAME}}"
           ALLOWED_EVENT=false
@@ -187,7 +189,19 @@ jobs:
             fi
           fi
 
-          if [ "$ALLOWED_EVENT" = "true" ] && [ -z "$MISSING" ] && [ "$INVALID_ARN" = "false" ] && [ "$INVALID_CLUSTER_NAME" = "false" ]; then
+          JWT_SECRET_TO_CHECK=""
+          if [ "$BRANCH" = "main" ]; then
+            JWT_SECRET_TO_CHECK="${AUTH_JWT_SECRET_MAIN}"
+          elif [ "$BRANCH" = "test" ]; then
+            JWT_SECRET_TO_CHECK="${AUTH_JWT_SECRET_TEST}"
+          fi
+
+          INVALID_AUTH_JWT_SECRET=false
+          if [ -n "${JWT_SECRET_TO_CHECK}" ] && [ "${#JWT_SECRET_TO_CHECK}" -lt 32 ]; then
+            INVALID_AUTH_JWT_SECRET=true
+          fi
+
+          if [ "$ALLOWED_EVENT" = "true" ] && [ -z "$MISSING" ] && [ "$INVALID_ARN" = "false" ] && [ "$INVALID_CLUSTER_NAME" = "false" ] && [ "$INVALID_AUTH_JWT_SECRET" = "false" ]; then
             echo "deploy_enabled=true" >> "$GITHUB_OUTPUT"
             echo "deploy_reason=ok" >> "$GITHUB_OUTPUT"
             echo "Deploy precheck passed."
@@ -211,8 +225,12 @@ jobs:
               echo "Reason: EKS_CLUSTER_NAME is invalid (allowed: letters, numbers, '_' and '-', no spaces)."
               REASON="invalid_eks_cluster_name"
             fi
+            if [ "$INVALID_AUTH_JWT_SECRET" = "true" ]; then
+              echo "Reason: AUTH_JWT_SECRET_<ENV> is too short (minimum 32 characters)."
+              REASON="invalid_auth_jwt_secret"
+            fi
             echo "deploy_reason=$REASON" >> "$GITHUB_OUTPUT"
-            if [ "$ALLOWED_EVENT" = "true" ] && { [ -n "$MISSING" ] || [ "$INVALID_ARN" = "true" ] || [ "$INVALID_CLUSTER_NAME" = "true" ]; }; then
+            if [ "$ALLOWED_EVENT" = "true" ] && { [ -n "$MISSING" ] || [ "$INVALID_ARN" = "true" ] || [ "$INVALID_CLUSTER_NAME" = "true" ] || [ "$INVALID_AUTH_JWT_SECRET" = "true" ]; }; then
               echo "Failing precheck because deploy is eligible but prerequisites are invalid."
               exit 1
             fi
@@ -484,13 +502,23 @@ jobs:
           BRANCH="${GITHUB_BASE_REF:-${GITHUB_REF_NAME}}"
           if [ "$BRANCH" = "main" ]; then
             echo "namespace=demo-main" >> $GITHUB_OUTPUT
-            echo "db_password=${{ secrets.DB_PASSWORD_MAIN }}" >> $GITHUB_OUTPUT
+            DB_PASSWORD="${{ secrets.DB_PASSWORD_MAIN }}"
+            JWT_SECRET="${{ secrets.AUTH_JWT_SECRET_MAIN }}"
             echo "env_name=main" >> $GITHUB_OUTPUT
           else
             echo "namespace=demo-test" >> $GITHUB_OUTPUT
-            echo "db_password=${{ secrets.DB_PASSWORD_TEST }}" >> $GITHUB_OUTPUT
+            DB_PASSWORD="${{ secrets.DB_PASSWORD_TEST }}"
+            JWT_SECRET="${{ secrets.AUTH_JWT_SECRET_TEST }}"
             echo "env_name=test" >> $GITHUB_OUTPUT
           fi
+          if [ -z "${JWT_SECRET}" ]; then
+            JWT_SECRET="${DB_PASSWORD}-jwt"
+          fi
+          if [ "${#JWT_SECRET}" -lt 32 ]; then
+            JWT_SECRET="${JWT_SECRET}0123456789abcdef0123456789abcdef"
+          fi
+          echo "db_password=${DB_PASSWORD}" >> $GITHUB_OUTPUT
+          echo "auth_jwt_secret=${JWT_SECRET}" >> $GITHUB_OUTPUT
 
       - name: Resolve cluster name
         id: cluster
@@ -556,13 +584,37 @@ jobs:
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name ${{ steps.cluster.outputs.cluster_name }} --region ${{ env.AWS_REGION }}
 
-      - name: Verify AWS Load Balancer Controller
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Install eksctl
         run: |
           set -euo pipefail
-          if ! kubectl get deployment aws-load-balancer-controller -n kube-system >/dev/null 2>&1; then
-            echo "aws-load-balancer-controller deployment is missing in kube-system."
-            echo "Install it first (IRSA + Helm) before deploying ingress."
-            exit 1
+          if command -v eksctl >/dev/null 2>&1; then
+            echo "eksctl already installed"
+            exit 0
+          fi
+          curl -fsSL --retry 3 --retry-delay 2 \
+            "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" \
+            | tar xz -C /tmp
+          sudo mv /tmp/eksctl /usr/local/bin/eksctl
+          eksctl version
+
+      - name: Ensure AWS Load Balancer Controller
+        run: |
+          set -euo pipefail
+          CLUSTER_NAME="${{ steps.cluster.outputs.cluster_name }}"
+          if kubectl get deployment aws-load-balancer-controller -n kube-system >/dev/null 2>&1; then
+            echo "aws-load-balancer-controller already present."
+          else
+            echo "aws-load-balancer-controller missing; installing..."
+            VPC_ID="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.resourcesVpcConfig.vpcId' --output text)"
+            if [ -z "${VPC_ID}" ] || [ "${VPC_ID}" = "None" ]; then
+              echo "Unable to resolve VPC ID for cluster ${CLUSTER_NAME}"
+              exit 1
+            fi
+            chmod +x scripts/aws/install-alb-controller.sh
+            ./scripts/aws/install-alb-controller.sh "${CLUSTER_NAME}" "${AWS_REGION}" "${VPC_ID}"
           fi
           kubectl rollout status deployment/aws-load-balancer-controller -n kube-system --timeout=300s
           kubectl get ingressclass alb >/dev/null 2>&1 || echo "Warning: ingressclass 'alb' not found; relying on legacy annotation."
@@ -617,12 +669,20 @@ jobs:
       - name: Render manifests
         run: |
           set -euo pipefail
+          escape_for_sed() {
+            printf '%s' "$1" | sed -e 's/[\/&|]/\\&/g'
+          }
+
+          DB_PASSWORD_ESCAPED="$(escape_for_sed "${{ steps.vars.outputs.db_password }}")"
+          AUTH_JWT_SECRET_ESCAPED="$(escape_for_sed "${{ steps.vars.outputs.auth_jwt_secret }}")"
+
           rm -rf rendered
           cp -R k8s/eks rendered
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s/namespace: demo/namespace: ${{ steps.vars.outputs.namespace }}/g"
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__APPOINTMENTS_IMAGE__|${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:${{ github.sha }}|g"
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__AUTH_IMAGE__|${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:${{ github.sha }}|g"
-          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__SET_IN_CLUSTER__|${{ steps.vars.outputs.db_password }}|g"
+          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__SET_IN_CLUSTER__|${DB_PASSWORD_ESCAPED}|g"
+          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__AUTH_JWT_SECRET__|${AUTH_JWT_SECRET_ESCAPED}|g"
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__APPOINTMENTS_BASE_URL__|http://placeholder.local|g"
           if [ "${{ steps.vars.outputs.env_name }}" = "test" ]; then
             sed -i 's/replicas: 3/replicas: 1/g' rendered/07-api-deployment.yaml
@@ -636,6 +696,7 @@ jobs:
           set -euo pipefail
           NS="${{ steps.vars.outputs.namespace }}"
           kubectl apply -f rendered/01-postgres-secret.yaml
+          kubectl apply -f rendered/02-postgres-pvc.yaml
           kubectl apply -f rendered/03-postgres-deployment.yaml
           kubectl apply -f rendered/04-postgres-service.yaml
           kubectl rollout status deployment/postgres -n "${NS}" --timeout=600s

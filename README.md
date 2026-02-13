@@ -30,6 +30,7 @@ Rebuild uniquement un service modifie:
 Appliquer les manifests dans l'ordre:
 `kubectl apply -f k8s/00-namespace.yaml`
 `kubectl apply -f k8s/01-postgres-secret.yaml`
+`kubectl apply -f k8s/02-postgres-pvc.yaml`
 `kubectl apply -f k8s/03-postgres-deployment.yaml`
 `kubectl apply -f k8s/04-postgres-service.yaml`
 `kubectl apply -f k8s/05-api-configmap.yaml`
@@ -42,19 +43,26 @@ Appliquer les manifests dans l'ordre:
 `kubectl apply -f k8s/12-auth-service.yaml`
 `kubectl apply -f k8s/13-api-hpa.yaml`
 `kubectl apply -f k8s/14-auth-hpa.yaml`
+`kubectl apply -f k8s/15-api-pdb.yaml`
+`kubectl apply -f k8s/16-auth-pdb.yaml`
 
 Haute disponibilite:
 - `appointments-api` replica sur `3` pods
 - `auth-api` replica sur `3` pods
-- Postgres utilise un volume ephemere (`emptyDir`) pour simplifier le demarrage sur EKS.
+- Postgres utilise un volume persistant (`PersistentVolumeClaim`).
 - autoscaling active via HPA (CPU) pour `appointments-api` et `auth-api`.
+- rolling updates + anti-affinite + PDB pour reduire les interruptions.
 
 Prerequis HPA:
 - `metrics-server` doit etre installe dans le cluster.
 
 Important securite:
 - les mots de passe ne sont plus hardcodes dans le code.
-- definir les secrets avant de lancer (`POSTGRES_PASSWORD` en local, valeurs `__SET_IN_CLUSTER__` a remplacer en Kubernetes).
+- definir les secrets avant de lancer (`POSTGRES_PASSWORD` en local, valeurs `__SET_IN_CLUSTER__` et `__AUTH_JWT_SECRET__` a remplacer en Kubernetes).
+
+Observabilite/API:
+- correlation ID (`X-Request-Id`) ajoute aux logs/reponses.
+- OpenAPI disponible sur `/swagger-ui.html` et `/api-docs`.
 
 ## Migration AWS EKS + Terraform
 
@@ -63,6 +71,7 @@ Terraform infra:
 
 Manifestes Kubernetes cibles EKS:
 - `k8s/eks`
+- Option secrets manager: `k8s/eks/externalsecrets`
 
 ### Cible AWS
 - Region: `eu-west-3` (Paris)
@@ -99,6 +108,8 @@ Secrets GitHub a configurer:
 - `TF_LOCK_TABLE` (table DynamoDB pour lock Terraform)
 - `DB_PASSWORD_TEST`
 - `DB_PASSWORD_MAIN`
+- `AUTH_JWT_SECRET_TEST` (optionnel mais recommande)
+- `AUTH_JWT_SECRET_MAIN` (optionnel mais recommande)
 
 Astuce mot de passe fort:
 - utilise au minimum 16 caracteres (majuscule, minuscule, chiffre, symbole).
