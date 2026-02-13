@@ -351,6 +351,59 @@ jobs:
         working-directory: infra/terraform/eks
         run: terraform validate
 
+      - name: Import existing AWS resources into Terraform state
+        working-directory: infra/terraform/eks
+        run: |
+          set -euo pipefail
+
+          ENV_NAME="${{ steps.vars.outputs.env_name }}"
+          CLUSTER_NAME="${{ steps.cluster.outputs.cluster_name }}"
+          NAME_PREFIX="cloud-projet-${ENV_NAME}"
+          CLUSTER_ROLE_NAME="${NAME_PREFIX}-eks-cluster-role"
+          NODES_ROLE_NAME="${NAME_PREFIX}-eks-nodes-role"
+          APPOINTMENTS_REPO="${NAME_PREFIX}/appointments-api"
+          AUTH_REPO="${NAME_PREFIX}/auth-api"
+          NODEGROUP_NAME="${NAME_PREFIX}-ng"
+
+          import_if_missing() {
+            local addr="$1"
+            local id="$2"
+            if terraform state show "$addr" >/dev/null 2>&1; then
+              echo "State already has ${addr}"
+            else
+              echo "Importing ${addr} <- ${id}"
+              terraform import "$addr" "$id"
+            fi
+          }
+
+          if aws iam get-role --role-name "${CLUSTER_ROLE_NAME}" >/dev/null 2>&1; then
+            import_if_missing aws_iam_role.eks_cluster "${CLUSTER_ROLE_NAME}"
+            import_if_missing aws_iam_role_policy_attachment.eks_cluster "${CLUSTER_ROLE_NAME}/arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+          fi
+
+          if aws iam get-role --role-name "${NODES_ROLE_NAME}" >/dev/null 2>&1; then
+            import_if_missing aws_iam_role.eks_nodes "${NODES_ROLE_NAME}"
+            import_if_missing aws_iam_role_policy_attachment.node_worker_policy "${NODES_ROLE_NAME}/arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+            import_if_missing aws_iam_role_policy_attachment.node_cni_policy "${NODES_ROLE_NAME}/arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+            import_if_missing aws_iam_role_policy_attachment.node_ecr_policy "${NODES_ROLE_NAME}/arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+          fi
+
+          if aws ecr describe-repositories --repository-names "${APPOINTMENTS_REPO}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+            import_if_missing aws_ecr_repository.appointments "${APPOINTMENTS_REPO}"
+          fi
+
+          if aws ecr describe-repositories --repository-names "${AUTH_REPO}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+            import_if_missing aws_ecr_repository.auth "${AUTH_REPO}"
+          fi
+
+          if aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+            import_if_missing aws_eks_cluster.this "${CLUSTER_NAME}"
+          fi
+
+          if aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" --nodegroup-name "${NODEGROUP_NAME}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+            import_if_missing aws_eks_node_group.default "${CLUSTER_NAME}:${NODEGROUP_NAME}"
+          fi
+
       - name: Terraform plan
         working-directory: infra/terraform/eks
         run: |
