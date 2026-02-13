@@ -22,7 +22,6 @@ Lance Postgres + les 2 microservices:
 Appliquer les manifests dans l'ordre:
 `kubectl apply -f k8s/00-namespace.yaml`
 `kubectl apply -f k8s/01-postgres-secret.yaml`
-`kubectl apply -f k8s/02-postgres-pvc.yaml`
 `kubectl apply -f k8s/03-postgres-deployment.yaml`
 `kubectl apply -f k8s/04-postgres-service.yaml`
 `kubectl apply -f k8s/05-api-configmap.yaml`
@@ -37,6 +36,7 @@ Appliquer les manifests dans l'ordre:
 Haute disponibilite:
 - `appointments-api` replica sur `3` pods
 - `auth-api` replica sur `3` pods
+- Postgres utilise un volume ephemere (`emptyDir`) pour simplifier le demarrage sur EKS.
 
 Important securite:
 - les mots de passe ne sont plus hardcodes dans le code.

@@ -4,3 +4,5 @@ secrets/
 *.tfstate
 *.tfstate.*
 *.tfvars
+app/target/
+auth-service/target/

@@ -9,6 +9,7 @@ Cette stack expose l'application avec **un seul ALB**:
 1. AWS Load Balancer Controller installe dans le cluster EKS.
 2. Les images ECR existent.
 3. Les secrets DB sont renseignes.
+4. Postgres est configure en stockage ephemere (`emptyDir`) pour un deploiement simple.
 
 ## Placeholders a remplacer
 

@@ -577,21 +577,6 @@ jobs:
             exit 1
           fi
 
-      - name: Resolve storage class
-        id: storage
-        run: |
-          set -euo pipefail
-          DEFAULT_SC="$(kubectl get storageclass -o jsonpath="{range .items[*]}{.metadata.name}{'\t'}{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}{'\t'}{.metadata.annotations.storageclass\.beta\.kubernetes\.io/is-default-class}{'\n'}{end}" | awk '$2=="true" || $3=="true" {print $1; exit}')"
-          if [ -z "${DEFAULT_SC}" ]; then
-            DEFAULT_SC="$(kubectl get storageclass -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-          fi
-          if [ -z "${DEFAULT_SC}" ]; then
-            echo "No Kubernetes StorageClass found in cluster."
-            exit 1
-          fi
-          echo "storage_class=${DEFAULT_SC}" >> "$GITHUB_OUTPUT"
-          echo "Using storage class: ${DEFAULT_SC}"
-
       - name: Render manifests
         run: |
           set -euo pipefail
@@ -602,23 +587,9 @@ jobs:
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__AUTH_IMAGE__|${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:${{ github.sha }}|g"
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__SET_IN_CLUSTER__|${{ steps.vars.outputs.db_password }}|g"
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__APPOINTMENTS_BASE_URL__|http://placeholder.local|g"
-          sed -i "s/^  storageClassName: .*/  storageClassName: ${{ steps.storage.outputs.storage_class }}/" rendered/02-postgres-pvc.yaml
           if [ "${{ steps.vars.outputs.env_name }}" = "test" ]; then
             sed -i 's/replicas: 3/replicas: 1/g' rendered/07-api-deployment.yaml
             sed -i 's/replicas: 3/replicas: 1/g' rendered/11-auth-deployment.yaml
-          fi
-
-      - name: Cleanup pending postgres pvc in test
-        if: steps.vars.outputs.env_name == 'test'
-        run: |
-          set -euo pipefail
-          NS="${{ steps.vars.outputs.namespace }}"
-          if kubectl get pvc postgres-pvc -n "${NS}" >/dev/null 2>&1; then
-            PVC_PHASE="$(kubectl get pvc postgres-pvc -n "${NS}" -o jsonpath='{.status.phase}')"
-            if [ "${PVC_PHASE}" != "Bound" ]; then
-              kubectl delete deployment postgres -n "${NS}" --ignore-not-found=true
-              kubectl delete pvc postgres-pvc -n "${NS}" --ignore-not-found=true
-            fi
           fi
 
       - name: Apply manifests
