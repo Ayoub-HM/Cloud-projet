@@ -531,6 +531,7 @@ jobs:
 
       - name: Render manifests
         run: |
+          set -euo pipefail
           rm -rf rendered
           cp -R k8s/eks rendered
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s/namespace: demo/namespace: ${{ steps.vars.outputs.namespace }}/g"
@@ -538,23 +539,55 @@ jobs:
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__AUTH_IMAGE__|${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:${{ github.sha }}|g"
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__SET_IN_CLUSTER__|${{ steps.vars.outputs.db_password }}|g"
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__APPOINTMENTS_BASE_URL__|http://placeholder.local|g"
+          if [ "${{ steps.vars.outputs.env_name }}" = "test" ]; then
+            sed -i 's/replicas: 3/replicas: 1/g' rendered/07-api-deployment.yaml
+            sed -i 's/replicas: 3/replicas: 1/g' rendered/11-auth-deployment.yaml
+          fi
 
       - name: Apply manifests
         run: kubectl apply -k rendered
 
       - name: Wait ingress and patch auth base URL
         run: |
-          kubectl wait --for=condition=available --timeout=300s deployment/appointments-api -n ${{ steps.vars.outputs.namespace }}
-          kubectl wait --for=condition=available --timeout=300s deployment/auth-api -n ${{ steps.vars.outputs.namespace }}
+          set -euo pipefail
+          NS="${{ steps.vars.outputs.namespace }}"
+
+          show_debug() {
+            echo "=== Cluster nodes ==="
+            kubectl get nodes -o wide || true
+            echo "=== Namespace resources (${NS}) ==="
+            kubectl get all -n "${NS}" -o wide || true
+            echo "=== Recent namespace events (${NS}) ==="
+            kubectl get events -n "${NS}" --sort-by=.metadata.creationTimestamp | tail -n 80 || true
+            echo "=== Appointments describe ==="
+            kubectl describe deployment/appointments-api -n "${NS}" || true
+            kubectl describe pods -n "${NS}" -l app=appointments-api || true
+            echo "=== Appointments logs ==="
+            kubectl logs -n "${NS}" -l app=appointments-api --all-containers --tail=200 || true
+            echo "=== Auth describe ==="
+            kubectl describe deployment/auth-api -n "${NS}" || true
+            kubectl describe pods -n "${NS}" -l app=auth-api || true
+            echo "=== Auth logs ==="
+            kubectl logs -n "${NS}" -l app=auth-api --all-containers --tail=200 || true
+            echo "=== Postgres describe/logs ==="
+            kubectl describe deployment/postgres -n "${NS}" || true
+            kubectl describe pods -n "${NS}" -l app=postgres || true
+            kubectl logs -n "${NS}" -l app=postgres --all-containers --tail=200 || true
+          }
+
+          kubectl rollout status deployment/postgres -n "${NS}" --timeout=300s || { show_debug; exit 1; }
+          kubectl rollout status deployment/appointments-api -n "${NS}" --timeout=600s || { show_debug; exit 1; }
+          kubectl rollout status deployment/auth-api -n "${NS}" --timeout=600s || { show_debug; exit 1; }
           for i in $(seq 1 30); do
-            ALB_HOST=$(kubectl get ingress app-ingress -n ${{ steps.vars.outputs.namespace }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || true)
+            ALB_HOST=$(kubectl get ingress app-ingress -n "${NS}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || true)
             if [ -n "$ALB_HOST" ]; then break; fi
             sleep 10
           done
           if [ -z "$ALB_HOST" ]; then
             echo "ALB hostname not ready yet"
+            show_debug
             exit 1
           fi
-          kubectl patch configmap auth-config -n ${{ steps.vars.outputs.namespace }} --type merge -p "{\"data\":{\"AUTH_APP_BASE_URL\":\"http://$ALB_HOST\"}}"
-          kubectl rollout restart deployment/auth-api -n ${{ steps.vars.outputs.namespace }}
+          kubectl patch configmap auth-config -n "${NS}" --type merge -p "{\"data\":{\"AUTH_APP_BASE_URL\":\"http://$ALB_HOST\"}}"
+          kubectl rollout restart deployment/auth-api -n "${NS}"
           echo "Application URL: http://$ALB_HOST"
