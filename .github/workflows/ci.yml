@@ -168,7 +168,14 @@ jobs:
             fi
           done
 
-          if [ "$ALLOWED_EVENT" = "true" ] && [ -z "$MISSING" ]; then
+          INVALID_ARN=false
+          if [ -n "${AWS_ROLE_TO_ASSUME}" ]; then
+            if ! [[ "${AWS_ROLE_TO_ASSUME}" =~ ^arn:aws:iam::[0-9]{12}:role/.+ ]]; then
+              INVALID_ARN=true
+            fi
+          fi
+
+          if [ "$ALLOWED_EVENT" = "true" ] && [ -z "$MISSING" ] && [ "$INVALID_ARN" = "false" ]; then
             echo "deploy_enabled=true" >> "$GITHUB_OUTPUT"
             echo "deploy_reason=ok" >> "$GITHUB_OUTPUT"
             echo "Deploy precheck passed."
@@ -184,9 +191,13 @@ jobs:
               echo "Reason: missing required secrets:$MISSING"
               REASON="missing_required_secrets:$MISSING"
             fi
+            if [ "$INVALID_ARN" = "true" ]; then
+              echo "Reason: AWS_ROLE_TO_ASSUME is not a valid IAM role ARN."
+              REASON="invalid_aws_role_arn"
+            fi
             echo "deploy_reason=$REASON" >> "$GITHUB_OUTPUT"
-            if [ "$ALLOWED_EVENT" = "true" ] && [ -n "$MISSING" ]; then
-              echo "Failing precheck because deploy is eligible but required secrets are missing."
+            if [ "$ALLOWED_EVENT" = "true" ] && { [ -n "$MISSING" ] || [ "$INVALID_ARN" = "true" ]; }; then
+              echo "Failing precheck because deploy is eligible but prerequisites are invalid."
               exit 1
             fi
           fi
