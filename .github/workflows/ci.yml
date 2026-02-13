@@ -438,6 +438,9 @@ jobs:
             if role_has_policy "${NODES_ROLE_NAME}" "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"; then
               import_if_missing aws_iam_role_policy_attachment.node_ecr_policy "${NODES_ROLE_NAME}/arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
             fi
+            if role_has_policy "${NODES_ROLE_NAME}" "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"; then
+              import_if_missing aws_iam_role_policy_attachment.node_ebs_csi_policy "${NODES_ROLE_NAME}/arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+            fi
           fi
 
           if aws ecr describe-repositories --repository-names "${APPOINTMENTS_REPO}" --region "${AWS_REGION}" >/dev/null 2>&1; then
@@ -666,6 +669,38 @@ jobs:
             exit 1
           fi
 
+      - name: Ensure EBS CSI driver and permissions
+        run: |
+          set -euo pipefail
+          CLUSTER_NAME="${{ steps.cluster.outputs.cluster_name }}"
+          NODEGROUP_NAME="cloud-projet-${{ steps.vars.outputs.env_name }}-ng"
+          EBS_POLICY_ARN="arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+
+          NODE_ROLE_ARN="$(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" --nodegroup-name "${NODEGROUP_NAME}" --region "${AWS_REGION}" --query 'nodegroup.nodeRole' --output text)"
+          if [ -z "${NODE_ROLE_ARN}" ] || [ "${NODE_ROLE_ARN}" = "None" ]; then
+            echo "Unable to resolve node role for ${NODEGROUP_NAME}"
+            exit 1
+          fi
+          NODE_ROLE_NAME="${NODE_ROLE_ARN##*/}"
+
+          if aws iam list-attached-role-policies --role-name "${NODE_ROLE_NAME}" --query "AttachedPolicies[?PolicyArn=='${EBS_POLICY_ARN}'].PolicyArn" --output text | grep -Fxq "${EBS_POLICY_ARN}"; then
+            echo "AmazonEBSCSIDriverPolicy already attached to ${NODE_ROLE_NAME}"
+          else
+            echo "Attaching AmazonEBSCSIDriverPolicy to ${NODE_ROLE_NAME}"
+            aws iam attach-role-policy --role-name "${NODE_ROLE_NAME}" --policy-arn "${EBS_POLICY_ARN}"
+          fi
+
+          if aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --region "${AWS_REGION}" >/dev/null 2>&1; then
+            echo "aws-ebs-csi-driver add-on already exists."
+            aws eks update-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --region "${AWS_REGION}" --resolve-conflicts OVERWRITE >/dev/null || true
+          else
+            echo "Installing aws-ebs-csi-driver add-on."
+            aws eks create-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --region "${AWS_REGION}" --resolve-conflicts OVERWRITE >/dev/null
+          fi
+
+          aws eks wait addon-active --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --region "${AWS_REGION}" || true
+          kubectl -n kube-system rollout status deployment/ebs-csi-controller --timeout=300s
+
       - name: Render manifests
         run: |
           set -euo pipefail
@@ -710,6 +745,11 @@ jobs:
             kubectl logs -n "${NS}" -l app=postgres --all-containers --tail=200 || true
             echo "=== Recent events (${NS}) ==="
             kubectl get events -n "${NS}" --sort-by=.metadata.creationTimestamp | tail -n 80 || true
+            echo "=== EBS CSI status (kube-system) ==="
+            kubectl get deployment ebs-csi-controller -n kube-system -o wide || true
+            kubectl describe deployment ebs-csi-controller -n kube-system || true
+            kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-ebs-csi-driver -o wide || true
+            kubectl logs -n kube-system deployment/ebs-csi-controller --all-containers --tail=200 || true
           }
 
           if ! kubectl get storageclass gp3 >/dev/null 2>&1; then
@@ -732,6 +772,14 @@ jobs:
           fi
 
           sed -i "s/storageClassName: gp3/storageClassName: ${SC_NAME}/" rendered/02-postgres-pvc.yaml
+          if kubectl get pvc/postgres-data -n "${NS}" >/dev/null 2>&1; then
+            PVC_PHASE="$(kubectl get pvc/postgres-data -n "${NS}" -o jsonpath='{.status.phase}' || true)"
+            PVC_VOLUME="$(kubectl get pvc/postgres-data -n "${NS}" -o jsonpath='{.spec.volumeName}' || true)"
+            if [ "${PVC_PHASE}" = "Pending" ] && [ -z "${PVC_VOLUME}" ]; then
+              echo "Deleting stale unbound pvc/postgres-data before re-apply."
+              kubectl delete pvc/postgres-data -n "${NS}" --wait=true || true
+            fi
+          fi
           kubectl apply -f rendered/01-postgres-secret.yaml
           kubectl apply -f rendered/02-postgres-pvc.yaml
           kubectl apply -f rendered/03-postgres-deployment.yaml

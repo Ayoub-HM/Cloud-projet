@@ -27,8 +27,8 @@ resource "aws_subnet" "public" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name                                     = "${local.name_prefix}-public-${each.key}"
-    "kubernetes.io/role/elb"                 = "1"
+    Name                                        = "${local.name_prefix}-public-${each.key}"
+    "kubernetes.io/role/elb"                    = "1"
     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   }
 }
@@ -43,8 +43,8 @@ resource "aws_subnet" "private" {
   availability_zone = data.aws_availability_zones.available.names[tonumber(each.key)]
 
   tags = {
-    Name                                          = "${local.name_prefix}-private-${each.key}"
-    "kubernetes.io/role/internal-elb"             = "1"
+    Name                                        = "${local.name_prefix}-private-${each.key}"
+    "kubernetes.io/role/internal-elb"           = "1"
     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   }
 }
@@ -182,6 +182,11 @@ resource "aws_iam_role_policy_attachment" "node_ecr_policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+resource "aws_iam_role_policy_attachment" "node_ebs_csi_policy" {
+  role       = aws_iam_role.eks_nodes.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+}
+
 resource "aws_eks_cluster" "this" {
   name     = var.cluster_name
   role_arn = aws_iam_role.eks_cluster.arn
@@ -213,7 +218,8 @@ resource "aws_eks_node_group" "default" {
   depends_on = [
     aws_iam_role_policy_attachment.node_worker_policy,
     aws_iam_role_policy_attachment.node_cni_policy,
-    aws_iam_role_policy_attachment.node_ecr_policy
+    aws_iam_role_policy_attachment.node_ecr_policy,
+    aws_iam_role_policy_attachment.node_ebs_csi_policy
   ]
 }
 
