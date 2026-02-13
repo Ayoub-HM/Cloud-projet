@@ -376,16 +376,33 @@ jobs:
             fi
           }
 
+          role_has_policy() {
+            local role_name="$1"
+            local policy_arn="$2"
+            aws iam list-attached-role-policies \
+              --role-name "${role_name}" \
+              --query "AttachedPolicies[?PolicyArn=='${policy_arn}'].PolicyArn" \
+              --output text | grep -Fxq "${policy_arn}"
+          }
+
           if aws iam get-role --role-name "${CLUSTER_ROLE_NAME}" >/dev/null 2>&1; then
             import_if_missing aws_iam_role.eks_cluster "${CLUSTER_ROLE_NAME}"
-            import_if_missing aws_iam_role_policy_attachment.eks_cluster "${CLUSTER_ROLE_NAME}/arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+            if role_has_policy "${CLUSTER_ROLE_NAME}" "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"; then
+              import_if_missing aws_iam_role_policy_attachment.eks_cluster "${CLUSTER_ROLE_NAME}/arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+            fi
           fi
 
           if aws iam get-role --role-name "${NODES_ROLE_NAME}" >/dev/null 2>&1; then
             import_if_missing aws_iam_role.eks_nodes "${NODES_ROLE_NAME}"
-            import_if_missing aws_iam_role_policy_attachment.node_worker_policy "${NODES_ROLE_NAME}/arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-            import_if_missing aws_iam_role_policy_attachment.node_cni_policy "${NODES_ROLE_NAME}/arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-            import_if_missing aws_iam_role_policy_attachment.node_ecr_policy "${NODES_ROLE_NAME}/arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+            if role_has_policy "${NODES_ROLE_NAME}" "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"; then
+              import_if_missing aws_iam_role_policy_attachment.node_worker_policy "${NODES_ROLE_NAME}/arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+            fi
+            if role_has_policy "${NODES_ROLE_NAME}" "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"; then
+              import_if_missing aws_iam_role_policy_attachment.node_cni_policy "${NODES_ROLE_NAME}/arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+            fi
+            if role_has_policy "${NODES_ROLE_NAME}" "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"; then
+              import_if_missing aws_iam_role_policy_attachment.node_ecr_policy "${NODES_ROLE_NAME}/arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+            fi
           fi
 
           if aws ecr describe-repositories --repository-names "${APPOINTMENTS_REPO}" --region "${AWS_REGION}" >/dev/null 2>&1; then

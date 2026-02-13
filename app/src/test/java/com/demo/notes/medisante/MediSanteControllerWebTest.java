@@ -3,8 +3,7 @@ package com.demo.notes.medisante;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -16,6 +15,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
+import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -24,18 +24,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(MediSanteController.class)
+@SuppressWarnings("null")
 class MediSanteControllerWebTest {
 
   @Autowired
   private MockMvc mockMvc;
 
-  @MockBean
+  @MockitoBean
   private MedicalServiceRepository medicalServiceRepository;
 
-  @MockBean
+  @MockitoBean
   private OfficeRepository officeRepository;
 
-  @MockBean
+  @MockitoBean
   private TeleconsultationRepository teleconsultationRepository;
 
   @Test
@@ -87,7 +88,7 @@ class MediSanteControllerWebTest {
         """;
 
     mockMvc.perform(post("/api/medisante/teleconsultations")
-            .contentType(MediaType.APPLICATION_JSON)
+            .contentType(APPLICATION_JSON_VALUE)
             .content(payload))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.patientName").value("Samir Haddad"))
@@ -132,7 +133,7 @@ class MediSanteControllerWebTest {
         """;
 
     mockMvc.perform(put("/api/medisante/teleconsultations/10")
-            .contentType(MediaType.APPLICATION_JSON)
+            .contentType(APPLICATION_JSON_VALUE)
             .content(payload))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.doctorName").value("Dr Emilie Roy"))

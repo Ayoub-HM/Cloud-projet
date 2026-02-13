@@ -15,10 +15,13 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/medisante")
 public class MediSanteController {
+  private static final String REQUIRED_TELECONSULTATION_FIELDS_MESSAGE =
+      "patientName, doctorName, speciality, scheduledAt and reason are required";
   private static final String DEFAULT_SERVICE_IMAGE =
       "https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&w=1200&q=80";
   private static final String TELECONSULT_IMAGE =
@@ -85,14 +88,14 @@ public class MediSanteController {
   }
 
   @PostMapping("/teleconsultations")
-  public ResponseEntity<?> createTeleconsultation(@RequestBody TeleconsultationUpsertRequest req) {
+  public ResponseEntity<Object> createTeleconsultation(@RequestBody TeleconsultationUpsertRequest req) {
     if (req == null
         || isBlank(req.patientName())
         || isBlank(req.doctorName())
         || isBlank(req.speciality())
         || req.scheduledAt() == null
         || isBlank(req.reason())) {
-      return ResponseEntity.badRequest().body("patientName, doctorName, speciality, scheduledAt and reason are required");
+      return ResponseEntity.badRequest().body(REQUIRED_TELECONSULTATION_FIELDS_MESSAGE);
     }
 
     Teleconsultation saved = teleconsultationRepository.save(new Teleconsultation(
@@ -113,20 +116,21 @@ public class MediSanteController {
   }
 
   @PutMapping("/teleconsultations/{id}")
-  public ResponseEntity<?> updateTeleconsultation(@PathVariable Long id, @RequestBody TeleconsultationUpsertRequest req) {
+  public ResponseEntity<Object> updateTeleconsultation(@PathVariable("id") long id, @RequestBody TeleconsultationUpsertRequest req) {
     if (req == null
         || isBlank(req.patientName())
         || isBlank(req.doctorName())
         || isBlank(req.speciality())
         || req.scheduledAt() == null
         || isBlank(req.reason())) {
-      return ResponseEntity.badRequest().body("patientName, doctorName, speciality, scheduledAt and reason are required");
+      return ResponseEntity.badRequest().body(REQUIRED_TELECONSULTATION_FIELDS_MESSAGE);
     }
 
-    Teleconsultation existing = teleconsultationRepository.findById(id).orElse(null);
-    if (existing == null) {
+    Optional<Teleconsultation> existingOpt = teleconsultationRepository.findById(id);
+    if (existingOpt.isEmpty()) {
       return ResponseEntity.notFound().build();
     }
+    Teleconsultation existing = existingOpt.get();
 
     existing.setPatientName(req.patientName().trim());
     existing.setDoctorName(req.doctorName().trim());
@@ -140,7 +144,7 @@ public class MediSanteController {
   }
 
   @DeleteMapping("/teleconsultations/{id}")
-  public ResponseEntity<Void> deleteTeleconsultation(@PathVariable Long id) {
+  public ResponseEntity<Void> deleteTeleconsultation(@PathVariable("id") long id) {
     if (!teleconsultationRepository.existsById(id)) {
       return ResponseEntity.notFound().build();
     }

@@ -5,11 +5,12 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.time.Instant;
-import java.util.List;
+import java.util.Arrays;
 
-@Configuration
+@Configuration(proxyBeanMethods = false)
 public class MediSanteBootstrap {
 
+  @SuppressWarnings("null")
   @Bean
   CommandLineRunner seedMediSanteData(
       MedicalServiceRepository medicalServiceRepository,
@@ -18,7 +19,7 @@ public class MediSanteBootstrap {
   ) {
     return args -> {
       if (medicalServiceRepository.count() == 0) {
-        medicalServiceRepository.saveAll(List.of(
+        medicalServiceRepository.saveAll(Arrays.asList(
             new MedicalService(
                 "Consultations video securisees",
                 "Mise en relation rapide patient-medecin avec historique de consultation.",
@@ -48,7 +49,7 @@ public class MediSanteBootstrap {
       });
 
       if (officeRepository.count() == 0) {
-        officeRepository.saveAll(List.of(
+        officeRepository.saveAll(Arrays.asList(
             new Office("Paris", "Siege social", 65),
             new Office("Lyon", "Pole operations medicales", 32),
             new Office("Bordeaux", "Support patient et qualite", 23)
@@ -56,7 +57,7 @@ public class MediSanteBootstrap {
       }
 
       if (teleconsultationRepository.count() == 0) {
-        teleconsultationRepository.saveAll(List.of(
+        teleconsultationRepository.saveAll(Arrays.asList(
             new Teleconsultation(
                 "Nora Benali",
                 "Dr Martin Legrand",
