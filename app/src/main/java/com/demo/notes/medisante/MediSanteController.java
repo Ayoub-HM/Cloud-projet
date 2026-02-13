@@ -1,5 +1,10 @@
 package com.demo.notes.medisante;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,14 +19,13 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/medisante")
 public class MediSanteController {
-  private static final String REQUIRED_TELECONSULTATION_FIELDS_MESSAGE =
-      "patientName, doctorName, speciality, scheduledAt and reason are required";
   private static final String DEFAULT_SERVICE_IMAGE =
       "https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&w=1200&q=80";
   private static final String TELECONSULT_IMAGE =
@@ -88,16 +92,7 @@ public class MediSanteController {
   }
 
   @PostMapping("/teleconsultations")
-  public ResponseEntity<Object> createTeleconsultation(@RequestBody TeleconsultationUpsertRequest req) {
-    if (req == null
-        || isBlank(req.patientName())
-        || isBlank(req.doctorName())
-        || isBlank(req.speciality())
-        || req.scheduledAt() == null
-        || isBlank(req.reason())) {
-      return ResponseEntity.badRequest().body(REQUIRED_TELECONSULTATION_FIELDS_MESSAGE);
-    }
-
+  public ResponseEntity<Object> createTeleconsultation(@Valid @RequestBody TeleconsultationUpsertRequest req) {
     Teleconsultation saved = teleconsultationRepository.save(new Teleconsultation(
         req.patientName().trim(),
         req.doctorName().trim(),
@@ -116,16 +111,7 @@ public class MediSanteController {
   }
 
   @PutMapping("/teleconsultations/{id}")
-  public ResponseEntity<Object> updateTeleconsultation(@PathVariable("id") long id, @RequestBody TeleconsultationUpsertRequest req) {
-    if (req == null
-        || isBlank(req.patientName())
-        || isBlank(req.doctorName())
-        || isBlank(req.speciality())
-        || req.scheduledAt() == null
-        || isBlank(req.reason())) {
-      return ResponseEntity.badRequest().body(REQUIRED_TELECONSULTATION_FIELDS_MESSAGE);
-    }
-
+  public ResponseEntity<Object> updateTeleconsultation(@PathVariable("id") long id, @Valid @RequestBody TeleconsultationUpsertRequest req) {
     Optional<Teleconsultation> existingOpt = teleconsultationRepository.findById(id);
     if (existingOpt.isEmpty()) {
       return ResponseEntity.notFound().build();
@@ -160,7 +146,7 @@ public class MediSanteController {
     if (isBlank(status)) {
       return fallback;
     }
-    return status.trim().toUpperCase();
+    return status.trim().toUpperCase(Locale.ROOT);
   }
 
   private TeleconsultationCard toCard(Teleconsultation teleconsultation) {
@@ -210,12 +196,12 @@ public class MediSanteController {
   }
 
   public record TeleconsultationUpsertRequest(
-      String patientName,
-      String doctorName,
-      String speciality,
-      Instant scheduledAt,
-      String reason,
-      String status
+      @NotBlank @Size(max = 120) String patientName,
+      @NotBlank @Size(max = 120) String doctorName,
+      @NotBlank @Size(max = 120) String speciality,
+      @NotNull Instant scheduledAt,
+      @NotBlank @Size(max = 500) String reason,
+      @Pattern(regexp = "(?i)^(|PLANIFIEE|EN_COURS|TERMINEE)$") String status
   ) {
   }
 

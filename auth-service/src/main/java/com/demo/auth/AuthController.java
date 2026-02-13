@@ -3,8 +3,10 @@ package com.demo.auth;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +25,7 @@ import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import javax.crypto.Mac;
@@ -61,13 +64,9 @@ public class AuthController {
   }
 
   @PostMapping("/signup")
-  public ResponseEntity<?> signUp(@RequestBody SignupRequest request) {
-    if (request == null || isBlank(request.username()) || isBlank(request.password())) {
-      return ResponseEntity.badRequest().body(Map.of("error", "username and password are required"));
-    }
-
-    String username = request.username().trim().toLowerCase();
-    String password = request.password().trim();
+  public ResponseEntity<?> signUp(@Valid @RequestBody SignupRequest request) {
+    String username = request.username().trim().toLowerCase(Locale.ROOT);
+    String password = request.password();
 
     if (username.length() < 3 || username.length() > 50) {
       return ResponseEntity.badRequest().body(Map.of("error", "username must be between 3 and 50 characters"));
@@ -81,18 +80,19 @@ public class AuthController {
       return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "username already exists"));
     }
 
-    userAccountRepository.save(new UserAccount(username, passwordEncoder.encode(password)));
+    try {
+      userAccountRepository.save(new UserAccount(username, passwordEncoder.encode(password)));
+    } catch (DataIntegrityViolationException ignored) {
+      // Protect against duplicate signup races on the unique username constraint.
+      return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "username already exists"));
+    }
     return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("message", "account created"));
   }
 
   @PostMapping("/login")
-  public ResponseEntity<?> login(@RequestBody LoginRequest request) {
-    if (request == null || isBlank(request.username()) || isBlank(request.password())) {
-      return ResponseEntity.badRequest().body(Map.of("error", "username and password are required"));
-    }
-
-    String username = request.username().trim().toLowerCase();
-    String password = request.password().trim();
+  public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
+    String username = request.username().trim().toLowerCase(Locale.ROOT);
+    String password = request.password();
 
     UserAccount user = userAccountRepository.findByUsername(username).orElse(null);
     if (user == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
@@ -215,8 +215,8 @@ public class AuthController {
   }
 
   public record LoginRequest(
-      @NotBlank String username,
-      @NotBlank String password
+      @NotBlank @Size(min = 3, max = 50) String username,
+      @NotBlank @Size(min = 8, max = 72) String password
   ) {
   }
 

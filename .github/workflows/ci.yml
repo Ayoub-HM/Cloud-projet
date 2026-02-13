@@ -695,11 +695,30 @@ jobs:
         run: |
           set -euo pipefail
           NS="${{ steps.vars.outputs.namespace }}"
+
+          show_debug() {
+            echo "=== Postgres deployment (${NS}) ==="
+            kubectl get deployment/postgres -n "${NS}" -o wide || true
+            kubectl describe deployment/postgres -n "${NS}" || true
+            echo "=== Postgres PVC (${NS}) ==="
+            kubectl get pvc/postgres-data -n "${NS}" -o wide || true
+            kubectl describe pvc/postgres-data -n "${NS}" || true
+            echo "=== Postgres pods (${NS}) ==="
+            kubectl get pods -n "${NS}" -l app=postgres -o wide || true
+            kubectl describe pods -n "${NS}" -l app=postgres || true
+            echo "=== Postgres logs (${NS}) ==="
+            kubectl logs -n "${NS}" -l app=postgres --all-containers --tail=200 || true
+            echo "=== Recent events (${NS}) ==="
+            kubectl get events -n "${NS}" --sort-by=.metadata.creationTimestamp | tail -n 80 || true
+          }
+
           kubectl apply -f rendered/01-postgres-secret.yaml
           kubectl apply -f rendered/02-postgres-pvc.yaml
           kubectl apply -f rendered/03-postgres-deployment.yaml
           kubectl apply -f rendered/04-postgres-service.yaml
-          kubectl rollout status deployment/postgres -n "${NS}" --timeout=600s
+          kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/postgres-data -n "${NS}" --timeout=300s || { show_debug; exit 1; }
+          kubectl rollout status deployment/postgres -n "${NS}" --timeout=900s || { show_debug; exit 1; }
+          kubectl wait --for=condition=Ready pod -l app=postgres -n "${NS}" --timeout=300s || { show_debug; exit 1; }
 
       - name: Apply remaining manifests
         run: kubectl apply -k rendered
@@ -737,7 +756,7 @@ jobs:
             kubectl logs -n "${NS}" -l app=postgres --all-containers --tail=200 || true
           }
 
-          kubectl rollout status deployment/postgres -n "${NS}" --timeout=300s || { show_debug; exit 1; }
+          kubectl rollout status deployment/postgres -n "${NS}" --timeout=900s || { show_debug; exit 1; }
           kubectl rollout status deployment/appointments-api -n "${NS}" --timeout=600s || { show_debug; exit 1; }
           kubectl rollout status deployment/auth-api -n "${NS}" --timeout=600s || { show_debug; exit 1; }
           for i in $(seq 1 60); do

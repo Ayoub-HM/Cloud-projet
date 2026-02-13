@@ -7,3 +7,4 @@ secrets/
 app/target/
 auth-service/target/
 app_from_image.jar
+.tools/

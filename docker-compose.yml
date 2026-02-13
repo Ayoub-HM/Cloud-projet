@@ -19,6 +19,7 @@ services:
       DB_USER: notes
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env}
       JPA_DDL_AUTO: update
+      SPRING_FLYWAY_ENABLED: "false"
     ports:
       - "8080:8080"
     depends_on:
@@ -33,6 +34,7 @@ services:
       DB_USER: notes
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env}
       JPA_DDL_AUTO: update
+      SPRING_FLYWAY_ENABLED: "false"
       AUTH_TOKEN_ISSUER: auth-service-local
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-dev-only-please-change-this-jwt-secret-32chars}
       AUTH_TOKEN_TTL_SECONDS: 3600

@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.MDC;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -19,14 +20,12 @@ public class RequestIdFilter extends OncePerRequestFilter {
 
   @Override
   protected void doFilterInternal(
-      HttpServletRequest request,
-      HttpServletResponse response,
-      FilterChain filterChain
+      @NonNull HttpServletRequest request,
+      @NonNull HttpServletResponse response,
+      @NonNull FilterChain filterChain
   ) throws ServletException, IOException {
-    String requestId = request.getHeader(REQUEST_ID_HEADER);
-    if (!StringUtils.hasText(requestId)) {
-      requestId = UUID.randomUUID().toString();
-    }
+    String requestIdHeader = request.getHeader(REQUEST_ID_HEADER);
+    String requestId = StringUtils.hasText(requestIdHeader) ? requestIdHeader : UUID.randomUUID().toString();
 
     response.setHeader(REQUEST_ID_HEADER, requestId);
     MDC.put(REQUEST_ID_MDC_KEY, requestId);

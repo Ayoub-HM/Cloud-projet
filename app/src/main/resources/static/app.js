@@ -177,7 +177,20 @@ function appointmentRow(appointment, onEdit, onDelete) {
 
 async function parseError(response) {
   const text = await response.text();
-  return text || `Erreur ${response.status}`;
+  if (!text) {
+    return `Erreur ${response.status}`;
+  }
+
+  try {
+    const body = JSON.parse(text);
+    if (body && typeof body.error === "string" && body.error.trim() !== "") {
+      return body.error;
+    }
+  } catch (_error) {
+    // keep raw response text fallback
+  }
+
+  return text;
 }
 
 async function getJson(url) {
