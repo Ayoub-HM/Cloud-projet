@@ -185,6 +185,10 @@ jobs:
               REASON="missing_required_secrets:$MISSING"
             fi
             echo "deploy_reason=$REASON" >> "$GITHUB_OUTPUT"
+            if [ "$ALLOWED_EVENT" = "true" ] && [ -n "$MISSING" ]; then
+              echo "Failing precheck because deploy is eligible but required secrets are missing."
+              exit 1
+            fi
           fi
 
   terraform_infra:
