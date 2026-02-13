@@ -39,20 +39,21 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          cache: maven
 
       - name: Build and test appointments service
         env:
           DB_URL: jdbc:postgresql://localhost:5432/notesdb
           DB_USER: notes
           DB_PASSWORD: notes_pwd
-        run: mvn -f app/pom.xml -q test package
+        run: mvn -f app/pom.xml -q test
 
       - name: Build and test auth service
         env:
           DB_URL: jdbc:postgresql://localhost:5432/notesdb
           DB_USER: notes
           DB_PASSWORD: notes_pwd
-        run: mvn -f auth-service/pom.xml -q test package
+        run: mvn -f auth-service/pom.xml -q test
 
   codeql_scan:
     runs-on: ubuntu-latest
@@ -63,6 +64,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          cache: maven
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -102,6 +104,8 @@ jobs:
           push: false
           load: true
           tags: appointments-local:${{ github.sha }}
+          cache-from: type=gha,scope=appointments-local
+          cache-to: type=gha,mode=max,scope=appointments-local
       - name: Build auth image locally
         uses: docker/build-push-action@v6
         with:
@@ -110,6 +114,8 @@ jobs:
           push: false
           load: true
           tags: auth-local:${{ github.sha }}
+          cache-from: type=gha,scope=auth-local
+          cache-to: type=gha,mode=max,scope=auth-local
       - name: Scan appointments image with Trivy
         uses: aquasecurity/trivy-action@0.28.0
         with:
@@ -128,6 +134,19 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+      - name: Export scanned images
+        run: |
+          docker save appointments-local:${{ github.sha }} -o appointments-local.tar
+          docker save auth-local:${{ github.sha }} -o auth-local.tar
+      - name: Upload scanned images artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanned-images-${{ github.sha }}
+          path: |
+            appointments-local.tar
+            auth-local.tar
+          if-no-files-found: error
+          retention-days: 1
 
   deploy_precheck:
     needs: image_security
@@ -503,21 +522,34 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push appointments image
-        uses: docker/build-push-action@v6
+      - name: Download scanned images
+        uses: actions/download-artifact@v4
         with:
-          context: ./app
-          file: ./app/Dockerfile
-          push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:${{ github.sha }},${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:latest
+          name: scanned-images-${{ github.sha }}
+          path: /tmp/scanned-images
 
-      - name: Build and push auth image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./auth-service
-          file: ./auth-service/Dockerfile
-          push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:${{ github.sha }},${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:latest
+      - name: Tag and push scanned images
+        run: |
+          set -euo pipefail
+          docker load -i /tmp/scanned-images/appointments-local.tar
+          docker load -i /tmp/scanned-images/auth-local.tar
+
+          APPOINTMENTS_LOCAL="appointments-local:${{ github.sha }}"
+          AUTH_LOCAL="auth-local:${{ github.sha }}"
+          APPOINTMENTS_REMOTE_SHA="${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:${{ github.sha }}"
+          APPOINTMENTS_REMOTE_LATEST="${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:latest"
+          AUTH_REMOTE_SHA="${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:${{ github.sha }}"
+          AUTH_REMOTE_LATEST="${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:latest"
+
+          docker tag "${APPOINTMENTS_LOCAL}" "${APPOINTMENTS_REMOTE_SHA}"
+          docker tag "${APPOINTMENTS_LOCAL}" "${APPOINTMENTS_REMOTE_LATEST}"
+          docker push "${APPOINTMENTS_REMOTE_SHA}"
+          docker push "${APPOINTMENTS_REMOTE_LATEST}"
+
+          docker tag "${AUTH_LOCAL}" "${AUTH_REMOTE_SHA}"
+          docker tag "${AUTH_LOCAL}" "${AUTH_REMOTE_LATEST}"
+          docker push "${AUTH_REMOTE_SHA}"
+          docker push "${AUTH_REMOTE_LATEST}"
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
@@ -592,7 +624,16 @@ jobs:
             sed -i 's/replicas: 3/replicas: 1/g' rendered/11-auth-deployment.yaml
           fi
 
-      - name: Apply manifests
+      - name: Apply and wait for postgres first
+        run: |
+          set -euo pipefail
+          NS="${{ steps.vars.outputs.namespace }}"
+          kubectl apply -f rendered/01-postgres-secret.yaml
+          kubectl apply -f rendered/03-postgres-deployment.yaml
+          kubectl apply -f rendered/04-postgres-service.yaml
+          kubectl rollout status deployment/postgres -n "${NS}" --timeout=600s
+
+      - name: Apply remaining manifests
         run: kubectl apply -k rendered
 
       - name: Wait ingress and patch auth base URL

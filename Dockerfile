@@ -1,10 +1,11 @@
+# syntax=docker/dockerfile:1.7
 # Build stage
 FROM maven:3.9.9-eclipse-temurin-21 AS build
 WORKDIR /workspace
 COPY app/pom.xml app/pom.xml
-RUN mvn -f app/pom.xml -q -DskipTests dependency:go-offline
+RUN --mount=type=cache,target=/root/.m2 mvn -f app/pom.xml -q -DskipTests dependency:go-offline
 COPY app app
-RUN mvn -f app/pom.xml -q -DskipTests package
+RUN --mount=type=cache,target=/root/.m2 mvn -f app/pom.xml -q -DskipTests package
 
 # runtime stage
 FROM eclipse-temurin:21-jre

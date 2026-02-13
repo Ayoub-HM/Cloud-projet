@@ -15,7 +15,11 @@ Service auth:
 ## Docker Compose
 
 Lance Postgres + les 2 microservices:
-`$env:POSTGRES_PASSWORD="change-me"; docker compose up --build`
+`$env:POSTGRES_PASSWORD="change-me"; docker compose up -d`
+
+Rebuild uniquement un service modifie:
+`docker compose build api`
+`docker compose build auth-service`
 
 ## Kubernetes
 
