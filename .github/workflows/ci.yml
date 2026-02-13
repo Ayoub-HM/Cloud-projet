@@ -437,7 +437,13 @@ jobs:
         id: tfout
         working-directory: infra/terraform/eks
         run: |
-          echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          CLUSTER_NAME="$(terraform output -raw cluster_name | xargs)"
+          if [ -z "${CLUSTER_NAME}" ]; then
+            echo "Terraform output 'cluster_name' is empty."
+            exit 1
+          fi
+          echo "cluster_name=${CLUSTER_NAME}" >> "$GITHUB_OUTPUT"
 
   deploy_aws_eks:
     if: needs.deploy_precheck.outputs.deploy_enabled == 'true'
@@ -466,6 +472,33 @@ jobs:
             echo "env_name=test" >> $GITHUB_OUTPUT
           fi
 
+      - name: Resolve cluster name
+        id: cluster
+        env:
+          TF_CLUSTER_NAME_RAW: ${{ needs.terraform_infra.outputs.cluster_name }}
+          EKS_CLUSTER_NAME_RAW: ${{ secrets.EKS_CLUSTER_NAME }}
+        run: |
+          set -euo pipefail
+          TF_CLUSTER_NAME="$(echo "${TF_CLUSTER_NAME_RAW}" | xargs)"
+          EKS_CLUSTER_NAME="$(echo "${EKS_CLUSTER_NAME_RAW}" | xargs)"
+
+          CLUSTER_NAME="${TF_CLUSTER_NAME}"
+          if [ -z "${CLUSTER_NAME}" ]; then
+            CLUSTER_NAME="${EKS_CLUSTER_NAME}"
+          fi
+
+          if [ -z "${CLUSTER_NAME}" ]; then
+            echo "Cluster name is empty from both Terraform output and EKS_CLUSTER_NAME secret."
+            exit 1
+          fi
+
+          if ! [[ "${CLUSTER_NAME}" =~ ^[0-9A-Za-z][0-9A-Za-z_-]*$ ]]; then
+            echo "Cluster name is invalid. Allowed pattern: ^[0-9A-Za-z][0-9A-Za-z_-]*$"
+            exit 1
+          fi
+
+          echo "cluster_name=${CLUSTER_NAME}" >> "$GITHUB_OUTPUT"
+
       - name: Login to ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
@@ -490,7 +523,7 @@ jobs:
         uses: azure/setup-kubectl@v4
 
       - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name ${{ needs.terraform_infra.outputs.cluster_name }} --region ${{ env.AWS_REGION }}
+        run: aws eks update-kubeconfig --name ${{ steps.cluster.outputs.cluster_name }} --region ${{ env.AWS_REGION }}
 
       - name: Ensure namespace exists
         run: |
