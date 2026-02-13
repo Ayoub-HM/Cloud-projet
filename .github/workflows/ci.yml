@@ -223,10 +223,38 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      - name: Normalize backend config
+        id: backend
+        env:
+          TF_STATE_BUCKET_RAW: ${{ secrets.TF_STATE_BUCKET }}
+          TF_LOCK_TABLE_RAW: ${{ secrets.TF_LOCK_TABLE }}
+        run: |
+          set -euo pipefail
+          TF_STATE_BUCKET="$(echo "${TF_STATE_BUCKET_RAW}" | xargs)"
+          TF_LOCK_TABLE="$(echo "${TF_LOCK_TABLE_RAW}" | xargs)"
+
+          if [ -z "${TF_STATE_BUCKET}" ] || [ -z "${TF_LOCK_TABLE}" ]; then
+            echo "TF_STATE_BUCKET and TF_LOCK_TABLE must be non-empty."
+            exit 1
+          fi
+
+          if ! [[ "${TF_STATE_BUCKET}" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]]; then
+            echo "Invalid TF_STATE_BUCKET format: must be a valid S3 bucket name."
+            exit 1
+          fi
+
+          if ! [[ "${TF_LOCK_TABLE}" =~ ^[A-Za-z0-9_.-]{3,255}$ ]]; then
+            echo "Invalid TF_LOCK_TABLE format: must match DynamoDB table naming rules."
+            exit 1
+          fi
+
+          echo "tf_state_bucket=${TF_STATE_BUCKET}" >> "$GITHUB_OUTPUT"
+          echo "tf_lock_table=${TF_LOCK_TABLE}" >> "$GITHUB_OUTPUT"
+
       - name: Ensure Terraform backend exists
         env:
-          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
-          TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+          TF_STATE_BUCKET: ${{ steps.backend.outputs.tf_state_bucket }}
+          TF_LOCK_TABLE: ${{ steps.backend.outputs.tf_lock_table }}
         run: |
           set -euo pipefail
 
@@ -236,9 +264,12 @@ jobs:
               --bucket "${TF_STATE_BUCKET}" \
               --region "${AWS_REGION}" \
               --create-bucket-configuration LocationConstraint="${AWS_REGION}"
+            aws s3api wait bucket-exists --bucket "${TF_STATE_BUCKET}"
           else
             echo "S3 backend bucket exists: ${TF_STATE_BUCKET}"
           fi
+
+          aws s3api head-bucket --bucket "${TF_STATE_BUCKET}" >/dev/null
 
           aws s3api put-bucket-versioning \
             --bucket "${TF_STATE_BUCKET}" \
@@ -281,10 +312,10 @@ jobs:
         working-directory: infra/terraform/eks
         run: |
           terraform init -reconfigure \
-            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="bucket=${{ steps.backend.outputs.tf_state_bucket }}" \
             -backend-config="key=cloud-projet/eks/terraform.tfstate" \
             -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="dynamodb_table=${{ secrets.TF_LOCK_TABLE }}" \
+            -backend-config="dynamodb_table=${{ steps.backend.outputs.tf_lock_table }}" \
             -backend-config="encrypt=true"
 
       - name: Terraform validate
