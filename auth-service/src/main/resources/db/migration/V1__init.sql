@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS auth_users (
+  id BIGSERIAL PRIMARY KEY,
+  username VARCHAR(80) NOT NULL UNIQUE,
+  password_hash VARCHAR(120) NOT NULL
+);

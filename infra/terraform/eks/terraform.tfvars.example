@@ -9,6 +9,6 @@ public_subnet_cidrs = ["10.20.0.0/24", "10.20.1.0/24"]
 private_subnet_cidrs = ["10.20.10.0/24", "10.20.11.0/24"]
 
 node_instance_types = ["t3.small"]
-node_desired_size   = 2
-node_min_size       = 2
-node_max_size       = 3
+node_desired_size   = 1
+node_min_size       = 1
+node_max_size       = 2

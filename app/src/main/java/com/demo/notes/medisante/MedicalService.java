@@ -24,7 +24,7 @@ public class MedicalService {
   @Column(nullable = false, length = 80)
   private String category;
 
-  @Column(length = 500)
+  @Column(nullable = false, length = 500)
   private String imageUrl;
 
   protected MedicalService() {

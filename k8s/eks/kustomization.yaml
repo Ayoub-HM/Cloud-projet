@@ -13,3 +13,5 @@ resources:
   - 11-auth-deployment.yaml
   - 12-auth-service.yaml
   - 13-alb-ingress.yaml
+  - 14-api-hpa.yaml
+  - 15-auth-hpa.yaml

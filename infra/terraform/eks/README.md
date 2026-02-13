@@ -8,6 +8,7 @@ Ce dossier provisionne:
 
 Note:
 - Le workflow CI/CD deploie ensuite `test` et `main` dans des namespaces Kubernetes separes du meme cluster.
+- Le dimensionnement par defaut est optimise cout (`node_desired_size=1`, `node_min_size=1`, `node_max_size=2`), puis surcharge en CI pour `main`.
 
 ## Prerequis
 

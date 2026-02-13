@@ -24,6 +24,13 @@ spec:
                 name: appointments-config
             - secretRef:
                 name: appointments-secret
+          resources:
+            requests:
+              cpu: 200m
+              memory: 384Mi
+            limits:
+              cpu: 800m
+              memory: 768Mi
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness

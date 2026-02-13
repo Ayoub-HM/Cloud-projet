@@ -17,6 +17,10 @@ Service auth:
 Lance Postgres + les 2 microservices:
 `$env:POSTGRES_PASSWORD="change-me"; docker compose up -d`
 
+Note:
+- en local, `docker-compose.yml` force `JPA_DDL_AUTO=update` pour accelerer le demarrage.
+- en dehors du mode local, les services utilisent Flyway + `ddl-auto=validate`.
+
 Rebuild uniquement un service modifie:
 `docker compose build api`
 `docker compose build auth-service`
@@ -36,11 +40,17 @@ Appliquer les manifests dans l'ordre:
 `kubectl apply -f k8s/10-auth-secret.yaml`
 `kubectl apply -f k8s/11-auth-deployment.yaml`
 `kubectl apply -f k8s/12-auth-service.yaml`
+`kubectl apply -f k8s/13-api-hpa.yaml`
+`kubectl apply -f k8s/14-auth-hpa.yaml`
 
 Haute disponibilite:
 - `appointments-api` replica sur `3` pods
 - `auth-api` replica sur `3` pods
 - Postgres utilise un volume ephemere (`emptyDir`) pour simplifier le demarrage sur EKS.
+- autoscaling active via HPA (CPU) pour `appointments-api` et `auth-api`.
+
+Prerequis HPA:
+- `metrics-server` doit etre installe dans le cluster.
 
 Important securite:
 - les mots de passe ne sont plus hardcodes dans le code.

@@ -1,5 +1,7 @@
 package com.demo.auth;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.beans.factory.annotation.Value;
@@ -14,17 +16,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
   private final UserAccountRepository userAccountRepository;
   private final PasswordEncoder passwordEncoder;
-  private final ConcurrentHashMap<String, Session> sessions = new ConcurrentHashMap<>();
+  private final Cache<String, Session> sessions;
   private final long tokenTtlSeconds;
   private final String appBaseUrl;
 
@@ -35,7 +37,11 @@ public class AuthController {
   ) {
     this.userAccountRepository = userAccountRepository;
     this.passwordEncoder = new BCryptPasswordEncoder();
-    this.tokenTtlSeconds = tokenTtlSeconds;
+    this.tokenTtlSeconds = Math.max(60, tokenTtlSeconds);
+    this.sessions = Caffeine.newBuilder()
+        .maximumSize(100_000)
+        .expireAfterWrite(Duration.ofSeconds(this.tokenTtlSeconds))
+        .build();
     this.appBaseUrl = appBaseUrl;
   }
 
@@ -91,9 +97,9 @@ public class AuthController {
 
   @GetMapping("/validate")
   public ResponseEntity<?> validate(@RequestParam String token) {
-    Session session = sessions.get(token);
+    Session session = sessions.getIfPresent(token);
     if (session == null || session.expiresAt().isBefore(Instant.now())) {
-      sessions.remove(token);
+      sessions.invalidate(token);
       return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("valid", false));
     }
     return ResponseEntity.ok(Map.of("valid", true, "username", session.username()));

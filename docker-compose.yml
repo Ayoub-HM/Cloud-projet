@@ -18,6 +18,7 @@ services:
       DB_URL: jdbc:postgresql://db:5432/notesdb
       DB_USER: notes
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env}
+      JPA_DDL_AUTO: update
     ports:
       - "8080:8080"
     depends_on:
@@ -31,6 +32,7 @@ services:
       DB_URL: jdbc:postgresql://db:5432/notesdb
       DB_USER: notes
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env}
+      JPA_DDL_AUTO: update
       AUTH_TOKEN_TTL_SECONDS: 3600
       AUTH_APP_BASE_URL: http://localhost:8080
     ports:

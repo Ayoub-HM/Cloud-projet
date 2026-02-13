@@ -10,6 +10,7 @@ Cette stack expose l'application avec **un seul ALB**:
 2. Les images ECR existent.
 3. Les secrets DB sont renseignes.
 4. Postgres est configure en stockage ephemere (`emptyDir`) pour un deploiement simple.
+5. `metrics-server` est installe si vous voulez que les HPA CPU fonctionnent.
 
 ## Placeholders a remplacer
 

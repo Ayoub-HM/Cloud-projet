@@ -92,8 +92,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build appointments image locally
@@ -134,19 +132,6 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-      - name: Export scanned images
-        run: |
-          docker save appointments-local:${{ github.sha }} -o appointments-local.tar
-          docker save auth-local:${{ github.sha }} -o auth-local.tar
-      - name: Upload scanned images artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: scanned-images-${{ github.sha }}
-          path: |
-            appointments-local.tar
-            auth-local.tar
-          if-no-files-found: error
-          retention-days: 1
 
   deploy_precheck:
     needs: image_security
@@ -339,6 +324,19 @@ jobs:
             echo "env_name=test" >> $GITHUB_OUTPUT
           fi
 
+      - name: Resolve nodegroup sizing
+        id: sizing
+        run: |
+          if [ "${{ steps.vars.outputs.env_name }}" = "main" ]; then
+            echo "node_desired_size=2" >> "$GITHUB_OUTPUT"
+            echo "node_min_size=2" >> "$GITHUB_OUTPUT"
+            echo "node_max_size=4" >> "$GITHUB_OUTPUT"
+          else
+            echo "node_desired_size=1" >> "$GITHUB_OUTPUT"
+            echo "node_min_size=1" >> "$GITHUB_OUTPUT"
+            echo "node_max_size=2" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Normalize cluster name
         id: cluster
         env:
@@ -446,7 +444,10 @@ jobs:
           terraform plan -out=tfplan \
             -var="aws_region=${{ env.AWS_REGION }}" \
             -var="environment=${{ steps.vars.outputs.env_name }}" \
-            -var="cluster_name=${{ steps.cluster.outputs.cluster_name }}"
+            -var="cluster_name=${{ steps.cluster.outputs.cluster_name }}" \
+            -var="node_desired_size=${{ steps.sizing.outputs.node_desired_size }}" \
+            -var="node_min_size=${{ steps.sizing.outputs.node_min_size }}" \
+            -var="node_max_size=${{ steps.sizing.outputs.node_max_size }}"
 
       - name: Terraform apply
         working-directory: infra/terraform/eks
@@ -522,40 +523,49 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Download scanned images
-        uses: actions/download-artifact@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push appointments image
+        uses: docker/build-push-action@v6
         with:
-          name: scanned-images-${{ github.sha }}
-          path: /tmp/scanned-images
+          context: ./app
+          file: ./app/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:latest
+          cache-from: type=gha,scope=appointments-local
+          cache-to: type=gha,mode=max,scope=appointments-local
 
-      - name: Tag and push scanned images
-        run: |
-          set -euo pipefail
-          docker load -i /tmp/scanned-images/appointments-local.tar
-          docker load -i /tmp/scanned-images/auth-local.tar
-
-          APPOINTMENTS_LOCAL="appointments-local:${{ github.sha }}"
-          AUTH_LOCAL="auth-local:${{ github.sha }}"
-          APPOINTMENTS_REMOTE_SHA="${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:${{ github.sha }}"
-          APPOINTMENTS_REMOTE_LATEST="${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:latest"
-          AUTH_REMOTE_SHA="${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:${{ github.sha }}"
-          AUTH_REMOTE_LATEST="${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:latest"
-
-          docker tag "${APPOINTMENTS_LOCAL}" "${APPOINTMENTS_REMOTE_SHA}"
-          docker tag "${APPOINTMENTS_LOCAL}" "${APPOINTMENTS_REMOTE_LATEST}"
-          docker push "${APPOINTMENTS_REMOTE_SHA}"
-          docker push "${APPOINTMENTS_REMOTE_LATEST}"
-
-          docker tag "${AUTH_LOCAL}" "${AUTH_REMOTE_SHA}"
-          docker tag "${AUTH_LOCAL}" "${AUTH_REMOTE_LATEST}"
-          docker push "${AUTH_REMOTE_SHA}"
-          docker push "${AUTH_REMOTE_LATEST}"
+      - name: Build and push auth image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./auth-service
+          file: ./auth-service/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:latest
+          cache-from: type=gha,scope=auth-local
+          cache-to: type=gha,mode=max,scope=auth-local
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
 
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name ${{ steps.cluster.outputs.cluster_name }} --region ${{ env.AWS_REGION }}
+
+      - name: Verify AWS Load Balancer Controller
+        run: |
+          set -euo pipefail
+          if ! kubectl get deployment aws-load-balancer-controller -n kube-system >/dev/null 2>&1; then
+            echo "aws-load-balancer-controller deployment is missing in kube-system."
+            echo "Install it first (IRSA + Helm) before deploying ingress."
+            exit 1
+          fi
+          kubectl rollout status deployment/aws-load-balancer-controller -n kube-system --timeout=300s
+          kubectl get ingressclass alb >/dev/null 2>&1 || echo "Warning: ingressclass 'alb' not found; relying on legacy annotation."
 
       - name: Ensure namespace exists
         run: |
@@ -567,7 +577,7 @@ jobs:
           set -euo pipefail
           CLUSTER_NAME="${{ steps.cluster.outputs.cluster_name }}"
           NODEGROUP_NAME="cloud-projet-${{ steps.vars.outputs.env_name }}-ng"
-          TARGET_NODES=3
+          TARGET_NODES=1
 
           MIN_SIZE="$(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" --nodegroup-name "${NODEGROUP_NAME}" --region "${AWS_REGION}" --query 'nodegroup.scalingConfig.minSize' --output text)"
           MAX_SIZE="$(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" --nodegroup-name "${NODEGROUP_NAME}" --region "${AWS_REGION}" --query 'nodegroup.scalingConfig.maxSize' --output text)"
@@ -578,17 +588,12 @@ jobs:
             exit 1
           fi
 
-          TARGET_MIN="${MIN_SIZE}"
-          if [ "${TARGET_MIN}" -lt "${TARGET_NODES}" ]; then
-            TARGET_MIN="${TARGET_NODES}"
-          fi
-
-          if [ "${DESIRED_SIZE}" -lt "${TARGET_NODES}" ] || [ "${MIN_SIZE}" -lt "${TARGET_NODES}" ]; then
+          if [ "${DESIRED_SIZE}" -ne "${TARGET_NODES}" ] || [ "${MIN_SIZE}" -ne "${TARGET_NODES}" ]; then
             aws eks update-nodegroup-config \
               --cluster-name "${CLUSTER_NAME}" \
               --nodegroup-name "${NODEGROUP_NAME}" \
               --region "${AWS_REGION}" \
-              --scaling-config minSize="${TARGET_MIN}",maxSize="${MAX_SIZE}",desiredSize="${TARGET_NODES}"
+              --scaling-config minSize="${TARGET_NODES}",maxSize="${MAX_SIZE}",desiredSize="${TARGET_NODES}"
             aws eks wait nodegroup-active \
               --cluster-name "${CLUSTER_NAME}" \
               --nodegroup-name "${NODEGROUP_NAME}" \
@@ -622,6 +627,8 @@ jobs:
           if [ "${{ steps.vars.outputs.env_name }}" = "test" ]; then
             sed -i 's/replicas: 3/replicas: 1/g' rendered/07-api-deployment.yaml
             sed -i 's/replicas: 3/replicas: 1/g' rendered/11-auth-deployment.yaml
+            sed -i 's/minReplicas: 2/minReplicas: 1/g' rendered/14-api-hpa.yaml
+            sed -i 's/minReplicas: 2/minReplicas: 1/g' rendered/15-auth-hpa.yaml
           fi
 
       - name: Apply and wait for postgres first
@@ -646,8 +653,13 @@ jobs:
             kubectl get nodes -o wide || true
             echo "=== Namespace resources (${NS}) ==="
             kubectl get all -n "${NS}" -o wide || true
+            echo "=== Ingress describe (${NS}) ==="
+            kubectl describe ingress app-ingress -n "${NS}" || true
             echo "=== Recent namespace events (${NS}) ==="
             kubectl get events -n "${NS}" --sort-by=.metadata.creationTimestamp | tail -n 80 || true
+            echo "=== AWS LB controller status/logs ==="
+            kubectl get deployment aws-load-balancer-controller -n kube-system -o wide || true
+            kubectl logs -n kube-system deployment/aws-load-balancer-controller --tail=200 || true
             echo "=== Appointments describe ==="
             kubectl describe deployment/appointments-api -n "${NS}" || true
             kubectl describe pods -n "${NS}" -l app=appointments-api || true
@@ -667,7 +679,7 @@ jobs:
           kubectl rollout status deployment/postgres -n "${NS}" --timeout=300s || { show_debug; exit 1; }
           kubectl rollout status deployment/appointments-api -n "${NS}" --timeout=600s || { show_debug; exit 1; }
           kubectl rollout status deployment/auth-api -n "${NS}" --timeout=600s || { show_debug; exit 1; }
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             ALB_HOST=$(kubectl get ingress app-ingress -n "${NS}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || true)
             if [ -n "$ALB_HOST" ]; then break; fi
             sleep 10

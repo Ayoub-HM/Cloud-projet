@@ -6,3 +6,4 @@ secrets/
 *.tfvars
 app/target/
 auth-service/target/
+app_from_image.jar
