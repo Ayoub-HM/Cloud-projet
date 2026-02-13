@@ -175,7 +175,15 @@ jobs:
             fi
           fi
 
-          if [ "$ALLOWED_EVENT" = "true" ] && [ -z "$MISSING" ] && [ "$INVALID_ARN" = "false" ]; then
+          INVALID_CLUSTER_NAME=false
+          if [ -n "${EKS_CLUSTER_NAME}" ]; then
+            EKS_CLUSTER_NAME_TRIMMED="$(echo "${EKS_CLUSTER_NAME}" | xargs)"
+            if ! [[ "${EKS_CLUSTER_NAME_TRIMMED}" =~ ^[0-9A-Za-z][0-9A-Za-z_-]*$ ]]; then
+              INVALID_CLUSTER_NAME=true
+            fi
+          fi
+
+          if [ "$ALLOWED_EVENT" = "true" ] && [ -z "$MISSING" ] && [ "$INVALID_ARN" = "false" ] && [ "$INVALID_CLUSTER_NAME" = "false" ]; then
             echo "deploy_enabled=true" >> "$GITHUB_OUTPUT"
             echo "deploy_reason=ok" >> "$GITHUB_OUTPUT"
             echo "Deploy precheck passed."
@@ -195,8 +203,12 @@ jobs:
               echo "Reason: AWS_ROLE_TO_ASSUME is not a valid IAM role ARN."
               REASON="invalid_aws_role_arn"
             fi
+            if [ "$INVALID_CLUSTER_NAME" = "true" ]; then
+              echo "Reason: EKS_CLUSTER_NAME is invalid (allowed: letters, numbers, '_' and '-', no spaces)."
+              REASON="invalid_eks_cluster_name"
+            fi
             echo "deploy_reason=$REASON" >> "$GITHUB_OUTPUT"
-            if [ "$ALLOWED_EVENT" = "true" ] && { [ -n "$MISSING" ] || [ "$INVALID_ARN" = "true" ]; }; then
+            if [ "$ALLOWED_EVENT" = "true" ] && { [ -n "$MISSING" ] || [ "$INVALID_ARN" = "true" ] || [ "$INVALID_CLUSTER_NAME" = "true" ]; }; then
               echo "Failing precheck because deploy is eligible but prerequisites are invalid."
               exit 1
             fi
@@ -308,6 +320,23 @@ jobs:
             echo "env_name=test" >> $GITHUB_OUTPUT
           fi
 
+      - name: Normalize cluster name
+        id: cluster
+        env:
+          EKS_CLUSTER_NAME_RAW: ${{ secrets.EKS_CLUSTER_NAME }}
+        run: |
+          set -euo pipefail
+          EKS_CLUSTER_NAME="$(echo "${EKS_CLUSTER_NAME_RAW}" | xargs)"
+          if [ -z "${EKS_CLUSTER_NAME}" ]; then
+            echo "EKS_CLUSTER_NAME must be non-empty."
+            exit 1
+          fi
+          if ! [[ "${EKS_CLUSTER_NAME}" =~ ^[0-9A-Za-z][0-9A-Za-z_-]*$ ]]; then
+            echo "EKS_CLUSTER_NAME is invalid. Allowed pattern: ^[0-9A-Za-z][0-9A-Za-z_-]*$"
+            exit 1
+          fi
+          echo "cluster_name=${EKS_CLUSTER_NAME}" >> "$GITHUB_OUTPUT"
+
       - name: Terraform init
         working-directory: infra/terraform/eks
         run: |
@@ -328,7 +357,7 @@ jobs:
           terraform plan -out=tfplan \
             -var="aws_region=${{ env.AWS_REGION }}" \
             -var="environment=${{ steps.vars.outputs.env_name }}" \
-            -var="cluster_name=${{ secrets.EKS_CLUSTER_NAME }}"
+            -var="cluster_name=${{ steps.cluster.outputs.cluster_name }}"
 
       - name: Terraform apply
         working-directory: infra/terraform/eks
