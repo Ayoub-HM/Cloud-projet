@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -23,7 +24,7 @@ public class RequestIdFilter extends OncePerRequestFilter {
       FilterChain filterChain
   ) throws ServletException, IOException {
     String requestId = request.getHeader(REQUEST_ID_HEADER);
-    if (requestId == null || requestId.isBlank()) {
+    if (!StringUtils.hasText(requestId)) {
       requestId = UUID.randomUUID().toString();
     }
 

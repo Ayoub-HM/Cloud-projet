@@ -65,6 +65,13 @@
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
 
+    <!-- Explicit servlet API for IDE/type resolution -->
+    <dependency>
+      <groupId>jakarta.servlet</groupId>
+      <artifactId>jakarta.servlet-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
     <!-- JPA -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
