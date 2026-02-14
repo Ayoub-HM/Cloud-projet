@@ -1096,7 +1096,9 @@ jobs:
 
           ensure_db() {
             local db="$1"
-            kubectl exec -n "${NS}" deployment/postgres -- sh -c "set -e; export PGPASSWORD=\"\\$POSTGRES_PASSWORD\"; psql -U \"\\$POSTGRES_USER\" -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='${db}'\" | grep -q 1 || psql -U \"\\$POSTGRES_USER\" -d postgres -c \"CREATE DATABASE \\\"${db}\\\"\""
+            if ! kubectl exec -n "${NS}" deployment/postgres -- sh -c "set -e; export PGPASSWORD=\"\$POSTGRES_PASSWORD\"; psql -U \"\$POSTGRES_USER\" -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='${db}'\" | grep -q 1 || psql -U \"\$POSTGRES_USER\" -d postgres -v ON_ERROR_STOP=1 -c \"CREATE DATABASE \\\"${db}\\\"\""; then
+              fail_with_debug "ensure_db(${db})"
+            fi
           }
 
           kubectl get namespace "${NS}" >/dev/null
