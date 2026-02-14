@@ -1036,6 +1036,8 @@ jobs:
           set -euo pipefail
           NS="${{ steps.vars.outputs.namespace }}"
           SC_NAME="cloud-projet-gp3"
+          ENV_NAME="${{ steps.vars.outputs.env_name }}"
+          RECOVERED=false
 
           show_debug() {
             echo "=== Postgres deployment (${NS}) ==="
@@ -1058,6 +1060,35 @@ jobs:
             kubectl describe deployment ebs-csi-controller -n kube-system || true
             kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-ebs-csi-driver -o wide || true
             kubectl logs -n kube-system deployment/ebs-csi-controller --all-containers --tail=200 || true
+          }
+
+          fail_with_debug() {
+            local reason="$1"
+            echo "FAIL_REASON: ${reason}"
+            show_debug
+            echo "FAIL_REASON: ${reason}"
+            exit 1
+          }
+
+          recover_test_postgres_once() {
+            local reason="$1"
+            if [ "${ENV_NAME}" != "test" ] || [ "${RECOVERED}" = "true" ]; then
+              fail_with_debug "${reason}"
+            fi
+
+            echo "Postgres not healthy (${reason}). Attempting one-time recovery in test env by recreating PVC/deployment..."
+            RECOVERED=true
+
+            kubectl delete deployment/postgres -n "${NS}" --ignore-not-found=true --wait=true --timeout=120s || true
+            kubectl delete pvc/postgres-data -n "${NS}" --ignore-not-found=true --wait=true --timeout=180s || true
+
+            kubectl apply -f rendered/02-postgres-pvc.yaml
+            kubectl apply -f rendered/04-postgres-service.yaml
+            kubectl apply -f rendered/03-postgres-deployment.yaml
+
+            # Give the recreated resources a fresh timeout window.
+            end=$(( $(date +%s) + 600 ))
+            last_report=0
           }
 
           kubectl get namespace "${NS}" >/dev/null
@@ -1118,16 +1149,24 @@ jobs:
               waiting_msg="$(kubectl get pod "${pod_name}" -n "${NS}" -o jsonpath='{.status.containerStatuses[0].state.waiting.message}' 2>/dev/null || true)"
               if [ -n "${waiting_reason}" ]; then
                 case "${waiting_reason}" in
-                  ErrImagePull|ImagePullBackOff|CreateContainerConfigError|CreateContainerError)
+                  ErrImagePull|ImagePullBackOff)
                     echo "Postgres pod is failing to start: ${waiting_reason}"
                     echo "${waiting_msg}"
-                    show_debug
-                    exit 1
+                    fail_with_debug "${waiting_reason}"
+                    ;;
+                  CreateContainerConfigError)
+                    echo "Postgres pod is failing to start: ${waiting_reason}"
+                    echo "${waiting_msg}"
+                    fail_with_debug "${waiting_reason}"
+                    ;;
+                  CreateContainerError)
+                    echo "Postgres pod is failing to start: ${waiting_reason}"
+                    echo "${waiting_msg}"
+                    recover_test_postgres_once "${waiting_reason}"
                     ;;
                   CrashLoopBackOff)
                     echo "Postgres container is crashlooping."
-                    show_debug
-                    exit 1
+                    recover_test_postgres_once "${waiting_reason}"
                     ;;
                 esac
               fi
@@ -1136,8 +1175,7 @@ jobs:
               if [ "${sched_status}" = "False" ]; then
                 sched_msg="$(kubectl get pod "${pod_name}" -n "${NS}" -o jsonpath='{.status.conditions[?(@.type=="PodScheduled")].message}' 2>/dev/null || true)"
                 echo "Postgres pod is unschedulable: ${sched_msg}"
-                show_debug
-                exit 1
+                fail_with_debug "Unschedulable"
               fi
             fi
 
@@ -1156,8 +1194,7 @@ jobs:
           done
 
           echo "Timed out waiting for Postgres readiness."
-          show_debug
-          exit 1
+          fail_with_debug "Timeout waiting for Postgres readiness"
 
       - name: Apply remaining manifests
         run: kubectl apply -k rendered
