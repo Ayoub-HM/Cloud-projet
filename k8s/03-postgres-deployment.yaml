@@ -17,6 +17,12 @@ spec:
       labels:
         app: postgres
     spec:
+      # Ensure the postgres process can write to the EBS-backed volume.
+      # New ext4 volumes are root-owned and contain lost+found; with PGDATA set to a subdir,
+      # we still need group write permission to create that subdir.
+      securityContext:
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: postgres
           image: public.ecr.aws/docker/library/postgres:16-alpine
