@@ -14,8 +14,42 @@ permissions:
 env:
   AWS_REGION: eu-west-3
 
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      auth: ${{ steps.filter.outputs.auth }}
+      k8s: ${{ steps.filter.outputs.k8s }}
+      infra: ${{ steps.filter.outputs.infra }}
+      workflows: ${{ steps.filter.outputs.workflows }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed areas
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            app:
+              - 'app/**'
+            auth:
+              - 'auth-service/**'
+            k8s:
+              - 'k8s/**'
+            infra:
+              - 'infra/terraform/eks/**'
+            workflows:
+              - '.github/workflows/**'
+
   build_test:
+    needs: changes
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.app == 'true' || needs.changes.outputs.auth == 'true' || needs.changes.outputs.workflows == 'true' }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -56,6 +90,8 @@ jobs:
         run: mvn -f auth-service/pom.xml -q test
 
   codeql_scan:
+    needs: changes
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.app == 'true' || needs.changes.outputs.auth == 'true' || needs.changes.outputs.workflows == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -88,10 +124,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   image_security:
-    needs: [build_test, codeql_scan, secret_scanning]
+    needs: [changes, build_test, codeql_scan, secret_scanning]
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.app == 'true' || needs.changes.outputs.auth == 'true' || needs.changes.outputs.workflows == 'true' }}
     runs-on: ubuntu-latest
+    env:
+      TRIVY_CACHE_DIR: ${{ github.workspace }}/.trivycache
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache Trivy DB
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TRIVY_CACHE_DIR }}
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build appointments image locally
@@ -134,7 +182,6 @@ jobs:
           exit-code: "1"
 
   deploy_precheck:
-    needs: image_security
     runs-on: ubuntu-latest
     outputs:
       deploy_enabled: ${{ steps.precheck.outputs.deploy_enabled }}
@@ -237,8 +284,8 @@ jobs:
           fi
 
   terraform_infra:
-    if: needs.deploy_precheck.outputs.deploy_enabled == 'true'
-    needs: [image_security, deploy_precheck]
+    if: ${{ needs.deploy_precheck.outputs.deploy_enabled == 'true' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.infra == 'true') }}
+    needs: [changes, deploy_precheck]
     runs-on: ubuntu-latest
     concurrency:
       group: terraform-eks-shared
@@ -487,8 +534,16 @@ jobs:
           echo "cluster_name=${CLUSTER_NAME}" >> "$GITHUB_OUTPUT"
 
   deploy_aws_eks:
-    if: needs.deploy_precheck.outputs.deploy_enabled == 'true'
-    needs: [image_security, deploy_precheck, terraform_infra]
+    if: ${{ needs.deploy_precheck.outputs.deploy_enabled == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+        needs.changes.outputs.app == 'true' ||
+        needs.changes.outputs.auth == 'true' ||
+        needs.changes.outputs.k8s == 'true' ||
+        needs.changes.outputs.infra == 'true' ||
+        needs.changes.outputs.workflows == 'true') &&
+      (needs.changes.outputs.infra != 'true' || needs.terraform_infra.result == 'success') &&
+      ((needs.changes.outputs.app != 'true' && needs.changes.outputs.auth != 'true') || needs.image_security.result == 'success') }}
+    needs: [changes, deploy_precheck, terraform_infra, image_security]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -550,42 +605,29 @@ jobs:
 
           echo "cluster_name=${CLUSTER_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Login to ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push appointments image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./app
-          file: ./app/Dockerfile
-          push: true
-          tags: |
-            ${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:${{ github.sha }}
-            ${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:latest
-          cache-from: type=gha,scope=appointments-local
-          cache-to: type=gha,mode=max,scope=appointments-local
-
-      - name: Build and push auth image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./auth-service
-          file: ./auth-service/Dockerfile
-          push: true
-          tags: |
-            ${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:${{ github.sha }}
-            ${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:latest
-          cache-from: type=gha,scope=auth-local
-          cache-to: type=gha,mode=max,scope=auth-local
-
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
 
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name ${{ steps.cluster.outputs.cluster_name }} --region ${{ env.AWS_REGION }}
+
+      - name: Preflight cluster access
+        run: |
+          set -euo pipefail
+          CLUSTER_NAME="${{ steps.cluster.outputs.cluster_name }}"
+          STATUS="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.status' --output text)"
+          if [ "${STATUS}" != "ACTIVE" ]; then
+            echo "EKS cluster ${CLUSTER_NAME} status is '${STATUS}', expected 'ACTIVE'."
+            exit 1
+          fi
+
+          kubectl get nodes -o wide
+          MISSING_ZONE="$(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.metadata.labels.topology\\.kubernetes\\.io/zone}{\"\\n\"}{end}' | awk '$2==\"\" {print $1}' || true)"
+          if [ -n "${MISSING_ZONE}" ]; then
+            echo "Some nodes are missing the label topology.kubernetes.io/zone:"
+            echo "${MISSING_ZONE}"
+            exit 1
+          fi
 
       - name: Setup Helm
         uses: azure/setup-helm@v4
@@ -801,6 +843,119 @@ jobs:
             exit 1
           fi
 
+      - name: Resolve image refs (build only when code changed)
+        id: images
+        env:
+          APP_CHANGED: ${{ needs.changes.outputs.app }}
+          AUTH_CHANGED: ${{ needs.changes.outputs.auth }}
+        run: |
+          set -euo pipefail
+
+          ENV_NAME="${{ steps.vars.outputs.env_name }}"
+          ACCOUNT_ID="$(aws sts get-caller-identity --query 'Account' --output text)"
+          REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          APPOINTMENTS_REPO="cloud-projet-${ENV_NAME}/appointments-api"
+          AUTH_REPO="cloud-projet-${ENV_NAME}/auth-api"
+
+          APPOINTMENTS_TAG="${GITHUB_SHA}"
+          AUTH_TAG="${GITHUB_SHA}"
+          BUILD_APPOINTMENTS=false
+          BUILD_AUTH=false
+
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [ "${APP_CHANGED}" = "true" ]; then
+            BUILD_APPOINTMENTS=true
+          else
+            APPOINTMENTS_TAG="latest"
+          fi
+
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [ "${AUTH_CHANGED}" = "true" ]; then
+            BUILD_AUTH=true
+          else
+            AUTH_TAG="latest"
+          fi
+
+          BUILD_ANY=false
+          if [ "${BUILD_APPOINTMENTS}" = "true" ] || [ "${BUILD_AUTH}" = "true" ]; then
+            BUILD_ANY=true
+          fi
+
+          echo "registry=${REGISTRY}" >> "$GITHUB_OUTPUT"
+          echo "appointments_repo=${APPOINTMENTS_REPO}" >> "$GITHUB_OUTPUT"
+          echo "auth_repo=${AUTH_REPO}" >> "$GITHUB_OUTPUT"
+          echo "appointments_tag=${APPOINTMENTS_TAG}" >> "$GITHUB_OUTPUT"
+          echo "auth_tag=${AUTH_TAG}" >> "$GITHUB_OUTPUT"
+          echo "build_appointments=${BUILD_APPOINTMENTS}" >> "$GITHUB_OUTPUT"
+          echo "build_auth=${BUILD_AUTH}" >> "$GITHUB_OUTPUT"
+          echo "build_any=${BUILD_ANY}" >> "$GITHUB_OUTPUT"
+          echo "appointments_image=${REGISTRY}/${APPOINTMENTS_REPO}:${APPOINTMENTS_TAG}" >> "$GITHUB_OUTPUT"
+          echo "auth_image=${REGISTRY}/${AUTH_REPO}:${AUTH_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure ECR repositories exist
+        run: |
+          set -euo pipefail
+          for repo in "${{ steps.images.outputs.appointments_repo }}" "${{ steps.images.outputs.auth_repo }}"; do
+            if aws ecr describe-repositories --repository-names "${repo}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+              echo "ECR repository exists: ${repo}"
+            else
+              echo "Creating ECR repository: ${repo}"
+              aws ecr create-repository --repository-name "${repo}" --region "${AWS_REGION}" >/dev/null
+            fi
+          done
+
+      - name: Login to ECR
+        if: steps.images.outputs.build_any == 'true'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        if: steps.images.outputs.build_any == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push appointments image
+        if: steps.images.outputs.build_appointments == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./app
+          file: ./app/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.images.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:${{ github.sha }}
+            ${{ steps.images.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:latest
+          cache-from: type=gha,scope=appointments-local
+          cache-to: type=gha,mode=max,scope=appointments-local
+
+      - name: Build and push auth image
+        if: steps.images.outputs.build_auth == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./auth-service
+          file: ./auth-service/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.images.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:${{ github.sha }}
+            ${{ steps.images.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:latest
+          cache-from: type=gha,scope=auth-local
+          cache-to: type=gha,mode=max,scope=auth-local
+
+      - name: Verify required images exist in ECR
+        run: |
+          set -euo pipefail
+
+          verify_image() {
+            local repo="$1"
+            local tag="$2"
+            if aws ecr describe-images --repository-name "${repo}" --image-ids "imageTag=${tag}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+              echo "Image present: ${repo}:${tag}"
+            else
+              echo "Missing image in ECR: ${repo}:${tag}"
+              echo "If this was a k8s-only change, ensure a previous successful run pushed the :latest tag."
+              exit 1
+            fi
+          }
+
+          verify_image "${{ steps.images.outputs.appointments_repo }}" "${{ steps.images.outputs.appointments_tag }}"
+          verify_image "${{ steps.images.outputs.auth_repo }}" "${{ steps.images.outputs.auth_tag }}"
+
       - name: Render manifests
         run: |
           set -euo pipefail
@@ -814,8 +969,8 @@ jobs:
           rm -rf rendered
           cp -R k8s/eks rendered
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s/namespace: demo/namespace: ${{ steps.vars.outputs.namespace }}/g"
-          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__APPOINTMENTS_IMAGE__|${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/appointments-api:${{ github.sha }}|g"
-          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__AUTH_IMAGE__|${{ steps.login-ecr.outputs.registry }}/cloud-projet-${{ steps.vars.outputs.env_name }}/auth-api:${{ github.sha }}|g"
+          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__APPOINTMENTS_IMAGE__|${{ steps.images.outputs.appointments_image }}|g"
+          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__AUTH_IMAGE__|${{ steps.images.outputs.auth_image }}|g"
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__SET_IN_CLUSTER__|${DB_PASSWORD_ESCAPED}|g"
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__AUTH_JWT_SECRET__|${AUTH_JWT_SECRET_ESCAPED}|g"
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__APPOINTMENTS_BASE_URL__|http://placeholder.local|g"
@@ -826,10 +981,32 @@ jobs:
             sed -i 's/minReplicas: 2/minReplicas: 1/g' rendered/15-auth-hpa.yaml
           fi
 
+      - name: Validate rendered manifests
+        run: |
+          set -euo pipefail
+
+          unresolved="$(grep -R -n \"__APPOINTMENTS_IMAGE__\\|__AUTH_IMAGE__\\|__SET_IN_CLUSTER__\\|__AUTH_JWT_SECRET__\" rendered || true)"
+          if [ -n "${unresolved}" ]; then
+            echo "Found unresolved placeholders in rendered manifests:"
+            echo "${unresolved}" | head -n 50
+            exit 1
+          fi
+
+          demo_ns="$(grep -R -n \"namespace: demo\" rendered || true)"
+          if [ -n "${demo_ns}" ]; then
+            echo "Found unrendered namespace 'demo' in manifests:"
+            echo "${demo_ns}" | head -n 50
+            exit 1
+          fi
+
+          kubectl kustomize rendered >/dev/null
+          kubectl kustomize rendered | kubectl apply --dry-run=client -f - >/dev/null
+
       - name: Apply and wait for postgres first
         run: |
           set -euo pipefail
           NS="${{ steps.vars.outputs.namespace }}"
+          SC_NAME="cloud-projet-gp3"
 
           show_debug() {
             echo "=== Postgres deployment (${NS}) ==="
@@ -845,6 +1022,8 @@ jobs:
             kubectl logs -n "${NS}" -l app=postgres --all-containers --tail=200 || true
             echo "=== Recent events (${NS}) ==="
             kubectl get events -n "${NS}" --sort-by=.metadata.creationTimestamp | tail -n 80 || true
+            echo "=== StorageClass (${SC_NAME}) ==="
+            kubectl get storageclass "${SC_NAME}" -o yaml || true
             echo "=== EBS CSI status (kube-system) ==="
             kubectl get deployment ebs-csi-controller -n kube-system -o wide || true
             kubectl describe deployment ebs-csi-controller -n kube-system || true
@@ -852,8 +1031,17 @@ jobs:
             kubectl logs -n kube-system deployment/ebs-csi-controller --all-containers --tail=200 || true
           }
 
-          if ! kubectl get storageclass gp3 >/dev/null 2>&1; then
-            echo "StorageClass gp3 not found; creating cloud-projet-gp3 for EBS CSI."
+          kubectl get namespace "${NS}" >/dev/null
+
+          if kubectl get storageclass "${SC_NAME}" >/dev/null 2>&1; then
+            PROVISIONER="$(kubectl get storageclass "${SC_NAME}" -o jsonpath='{.provisioner}' || true)"
+            if [ "${PROVISIONER}" != "ebs.csi.aws.com" ]; then
+              echo "StorageClass ${SC_NAME} has provisioner '${PROVISIONER}', expected 'ebs.csi.aws.com'."
+              kubectl get storageclass "${SC_NAME}" -o yaml || true
+              exit 1
+            fi
+          else
+            echo "Creating StorageClass ${SC_NAME} for EBS CSI."
             cat <<'EOF' | kubectl apply -f -
           apiVersion: storage.k8s.io/v1
           kind: StorageClass
@@ -863,15 +1051,17 @@ jobs:
           volumeBindingMode: WaitForFirstConsumer
           parameters:
             type: gp3
-            fsType: ext4
+            csi.storage.k8s.io/fstype: ext4
           allowVolumeExpansion: true
           EOF
-            SC_NAME="cloud-projet-gp3"
-          else
-            SC_NAME="gp3"
           fi
 
-          sed -i "s/storageClassName: gp3/storageClassName: ${SC_NAME}/" rendered/02-postgres-pvc.yaml
+          if ! grep -q "storageClassName: ${SC_NAME}" rendered/02-postgres-pvc.yaml; then
+            echo "rendered/02-postgres-pvc.yaml must use storageClassName: ${SC_NAME}"
+            grep -n "storageClassName" rendered/02-postgres-pvc.yaml || true
+            exit 1
+          fi
+
           if kubectl get pvc/postgres-data -n "${NS}" >/dev/null 2>&1; then
             PVC_PHASE="$(kubectl get pvc/postgres-data -n "${NS}" -o jsonpath='{.status.phase}' || true)"
             PVC_VOLUME="$(kubectl get pvc/postgres-data -n "${NS}" -o jsonpath='{.spec.volumeName}' || true)"
@@ -882,22 +1072,64 @@ jobs:
           fi
           kubectl apply -f rendered/01-postgres-secret.yaml
           kubectl apply -f rendered/02-postgres-pvc.yaml
-          kubectl apply -f rendered/03-postgres-deployment.yaml
           kubectl apply -f rendered/04-postgres-service.yaml
+          kubectl apply -f rendered/03-postgres-deployment.yaml
 
-          wait_postgres_ready() {
-            kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/postgres-data -n "${NS}" --timeout=600s
-            kubectl rollout status deployment/postgres -n "${NS}" --timeout=1200s
-            kubectl wait --for=condition=Ready pod -l app=postgres -n "${NS}" --timeout=600s
-          }
+          echo "Waiting for pvc/postgres-data to bind and Postgres to become Ready..."
+          end=$(( $(date +%s) + 600 ))
+          last_report=0
+          while [ "$(date +%s)" -lt "${end}" ]; do
+            pvc_phase="$(kubectl get pvc/postgres-data -n "${NS}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+            pod_name="$(kubectl get pods -n "${NS}" -l app=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
 
-          if ! wait_postgres_ready; then
-            echo "Postgres readiness checks failed on first attempt; showing debug and retrying once."
-            show_debug
-            kubectl rollout restart deployment/postgres -n "${NS}" || true
-            sleep 20
-            wait_postgres_ready || { show_debug; exit 1; }
-          fi
+            ready=""
+            if [ -n "${pod_name}" ]; then
+              ready="$(kubectl get pod "${pod_name}" -n "${NS}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+
+              waiting_reason="$(kubectl get pod "${pod_name}" -n "${NS}" -o jsonpath='{.status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || true)"
+              waiting_msg="$(kubectl get pod "${pod_name}" -n "${NS}" -o jsonpath='{.status.containerStatuses[0].state.waiting.message}' 2>/dev/null || true)"
+              if [ -n "${waiting_reason}" ]; then
+                case "${waiting_reason}" in
+                  ErrImagePull|ImagePullBackOff|CreateContainerConfigError|CreateContainerError)
+                    echo "Postgres pod is failing to start: ${waiting_reason}"
+                    echo "${waiting_msg}"
+                    show_debug
+                    exit 1
+                    ;;
+                  CrashLoopBackOff)
+                    echo "Postgres container is crashlooping."
+                    show_debug
+                    exit 1
+                    ;;
+                esac
+              fi
+
+              sched_status="$(kubectl get pod "${pod_name}" -n "${NS}" -o jsonpath='{.status.conditions[?(@.type=="PodScheduled")].status}' 2>/dev/null || true)"
+              if [ "${sched_status}" = "False" ]; then
+                sched_msg="$(kubectl get pod "${pod_name}" -n "${NS}" -o jsonpath='{.status.conditions[?(@.type=="PodScheduled")].message}' 2>/dev/null || true)"
+                echo "Postgres pod is unschedulable: ${sched_msg}"
+                show_debug
+                exit 1
+              fi
+            fi
+
+            now="$(date +%s)"
+            if [ "$(( now - last_report ))" -ge 60 ]; then
+              echo "Status: pvc=${pvc_phase:-unknown} pod=${pod_name:-none} ready=${ready:-unknown}"
+              last_report="${now}"
+            fi
+
+            if [ "${pvc_phase}" = "Bound" ] && [ "${ready}" = "True" ]; then
+              echo "Postgres is Ready."
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "Timed out waiting for Postgres readiness."
+          show_debug
+          exit 1
 
       - name: Apply remaining manifests
         run: kubectl apply -k rendered
