@@ -536,7 +536,9 @@ jobs:
           echo "cluster_name=${CLUSTER_NAME}" >> "$GITHUB_OUTPUT"
 
   deploy_aws_eks:
-    if: ${{ needs.deploy_precheck.outputs.deploy_enabled == 'true' &&
+    if: ${{ always() &&
+      needs.deploy_precheck.result == 'success' &&
+      needs.deploy_precheck.outputs.deploy_enabled == 'true' &&
       (github.event_name == 'workflow_dispatch' ||
         needs.changes.outputs.app == 'true' ||
         needs.changes.outputs.auth == 'true' ||
