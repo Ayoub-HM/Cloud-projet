@@ -1,0 +1,156 @@
+name: Deploy AWS EKS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy_aws_eks:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-3' }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'cloud-projet-test-eks' }}
+      EKS_NODEGROUP_NAME: ${{ vars.EKS_NODEGROUP_NAME || 'cloud-projet-test-eks-nodes' }}
+      EKS_NODE_ROLE_NAME: ${{ vars.EKS_NODE_ROLE_NAME || 'cloud-projet-test-eks-nodes-role' }}
+      EBS_CSI_ROLE_NAME: ${{ vars.EBS_CSI_ROLE_NAME || 'cloud-projet-test-eks-ebs-csi-role' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Install eksctl
+        run: |
+          set -euo pipefail
+          curl -sSL --fail "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_amd64.tar.gz" \
+            | tar xz -C /tmp
+          sudo mv /tmp/eksctl /usr/local/bin/eksctl
+          eksctl version
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+
+      - name: Ensure namespace exists
+        run: kubectl get ns medisante || kubectl create ns medisante
+
+      - name: Ensure test nodegroup capacity and wait for ready nodes
+        run: |
+          set -euo pipefail
+          aws eks update-nodegroup-config \
+            --cluster-name "$EKS_CLUSTER_NAME" \
+            --nodegroup-name "$EKS_NODEGROUP_NAME" \
+            --scaling-config minSize=1,maxSize=3,desiredSize=2 >/dev/null
+
+          aws eks wait nodegroup-active \
+            --cluster-name "$EKS_CLUSTER_NAME" \
+            --nodegroup-name "$EKS_NODEGROUP_NAME"
+
+          kubectl wait --for=condition=Ready nodes --all --timeout=15m
+
+      - name: Ensure AWS Load Balancer Controller
+        run: |
+          set -euo pipefail
+          oidc_provider="$(aws eks describe-cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --query "cluster.identity.oidc.issuer" --output text | sed -e 's~^https://~~')"
+
+          cat > /tmp/lbc-trust-policy.json <<EOF
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {"Federated": "arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:oidc-provider/${oidc_provider}"},
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "${oidc_provider}:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller",
+                    "${oidc_provider}:aud": "sts.amazonaws.com"
+                  }
+                }
+              }
+            ]
+          }
+          EOF
+
+          aws iam create-role \
+            --role-name cloud-projet-test-eks-lbc-role \
+            --assume-role-policy-document file:///tmp/lbc-trust-policy.json >/dev/null 2>&1 || true
+
+          aws iam attach-role-policy \
+            --role-name cloud-projet-test-eks-lbc-role \
+            --policy-arn arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess >/dev/null || true
+
+          kubectl create sa aws-load-balancer-controller -n kube-system >/dev/null 2>&1 || true
+          kubectl annotate sa aws-load-balancer-controller -n kube-system \
+            eks.amazonaws.com/role-arn="arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/cloud-projet-test-eks-lbc-role" --overwrite
+
+      - name: Ensure EBS CSI driver and permissions
+        run: |
+          set -euo pipefail
+
+          oidc_provider="$(aws eks describe-cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --query "cluster.identity.oidc.issuer" --output text | sed -e 's~^https://~~')"
+          ebs_policy_arn="arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+
+          cat > /tmp/ebs-csi-trust-policy.json <<EOF
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {"Federated": "arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:oidc-provider/${oidc_provider}"},
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "${oidc_provider}:sub": "system:serviceaccount:kube-system:ebs-csi-controller-sa",
+                    "${oidc_provider}:aud": "sts.amazonaws.com"
+                  }
+                }
+              }
+            ]
+          }
+          EOF
+
+          aws iam create-role \
+            --role-name "$EBS_CSI_ROLE_NAME" \
+            --assume-role-policy-document file:///tmp/ebs-csi-trust-policy.json >/dev/null 2>&1 || true
+
+          aws iam attach-role-policy \
+            --role-name "$EBS_CSI_ROLE_NAME" \
+            --policy-arn "$ebs_policy_arn" >/dev/null || true
+
+          ebs_role_arn="arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${EBS_CSI_ROLE_NAME}"
+
+          aws eks describe-addon \
+            --cluster-name "$EKS_CLUSTER_NAME" \
+            --addon-name aws-ebs-csi-driver >/dev/null 2>&1 || aws eks create-addon \
+              --cluster-name "$EKS_CLUSTER_NAME" \
+              --addon-name aws-ebs-csi-driver \
+              --service-account-role-arn "$ebs_role_arn" \
+              --resolve-conflicts OVERWRITE
+
+          aws eks update-addon \
+            --cluster-name "$EKS_CLUSTER_NAME" \
+            --addon-name aws-ebs-csi-driver \
+            --service-account-role-arn "$ebs_role_arn" \
+            --resolve-conflicts OVERWRITE >/dev/null || true
+
+          aws eks wait addon-active --cluster-name "$EKS_CLUSTER_NAME" --addon-name aws-ebs-csi-driver
+
+          kubectl rollout status deployment/ebs-csi-controller -n kube-system --timeout=10m
+
+      - name: Deploy manifests
+        run: |
+          set -euo pipefail
+          kubectl apply -f k8s/
