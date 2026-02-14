@@ -33,9 +33,14 @@ spec:
             - -c
             - |
               set -e
-              mkdir -p /var/lib/postgresql/data/pgdata
-              chown -R postgres:postgres /var/lib/postgresql/data/pgdata
-              chmod 700 /var/lib/postgresql/data/pgdata
+              PGDATA_DIR="/var/lib/postgresql/data/pgdata"
+              if [ -d "${PGDATA_DIR}" ] && [ ! -f "${PGDATA_DIR}/PG_VERSION" ]; then
+                # Clean up leftovers from a previously failed init (safe if PG_VERSION is missing).
+                find "${PGDATA_DIR}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+              fi
+              mkdir -p "${PGDATA_DIR}"
+              chown -R postgres:postgres "${PGDATA_DIR}"
+              chmod 700 "${PGDATA_DIR}"
           securityContext:
             runAsUser: 0
           volumeMounts:
