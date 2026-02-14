@@ -675,6 +675,7 @@ jobs:
           CLUSTER_NAME="${{ steps.cluster.outputs.cluster_name }}"
           NODEGROUP_NAME="cloud-projet-${{ steps.vars.outputs.env_name }}-ng"
           EBS_POLICY_ARN="arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+          EBS_CSI_ROLE_NAME="cloud-projet-${{ steps.vars.outputs.env_name }}-eks-ebs-csi-role"
 
           NODE_ROLE_ARN="$(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" --nodegroup-name "${NODEGROUP_NAME}" --region "${AWS_REGION}" --query 'nodegroup.nodeRole' --output text)"
           if [ -z "${NODE_ROLE_ARN}" ] || [ "${NODE_ROLE_ARN}" = "None" ]; then
@@ -690,16 +691,106 @@ jobs:
             aws iam attach-role-policy --role-name "${NODE_ROLE_NAME}" --policy-arn "${EBS_POLICY_ARN}"
           fi
 
-          if aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --region "${AWS_REGION}" >/dev/null 2>&1; then
-            echo "aws-ebs-csi-driver add-on already exists."
-            aws eks update-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --region "${AWS_REGION}" --resolve-conflicts OVERWRITE >/dev/null || true
+          show_ebs_debug() {
+            echo "=== EBS CSI add-on (EKS) ==="
+            aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --region "${AWS_REGION}" || true
+            echo "=== EBS CSI deployment (kube-system) ==="
+            kubectl -n kube-system get deployment ebs-csi-controller -o wide || true
+            kubectl -n kube-system describe deployment ebs-csi-controller || true
+            echo "=== EBS CSI pods (kube-system) ==="
+            kubectl -n kube-system get pods -l app.kubernetes.io/name=aws-ebs-csi-driver -o wide || true
+            kubectl -n kube-system describe pods -l app.kubernetes.io/name=aws-ebs-csi-driver || true
+            kubectl -n kube-system logs deployment/ebs-csi-controller --all-containers --tail=200 || true
+            echo "=== Recent kube-system events ==="
+            kubectl -n kube-system get events --sort-by=.metadata.creationTimestamp | tail -n 80 || true
+          }
+
+          eksctl utils associate-iam-oidc-provider --cluster "${CLUSTER_NAME}" --region "${AWS_REGION}" --approve >/dev/null
+
+          ACCOUNT_ID="$(aws sts get-caller-identity --query 'Account' --output text)"
+          OIDC_PROVIDER="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.identity.oidc.issuer' --output text | sed -e 's~^https://~~')"
+
+          cat > /tmp/ebs-csi-trust-policy.json <<EOF
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {"Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"},
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "${OIDC_PROVIDER}:sub": "system:serviceaccount:kube-system:ebs-csi-controller-sa",
+                    "${OIDC_PROVIDER}:aud": "sts.amazonaws.com"
+                  }
+                }
+              }
+            ]
+          }
+          EOF
+
+          if aws iam get-role --role-name "${EBS_CSI_ROLE_NAME}" >/dev/null 2>&1; then
+            aws iam update-assume-role-policy \
+              --role-name "${EBS_CSI_ROLE_NAME}" \
+              --policy-document file:///tmp/ebs-csi-trust-policy.json >/dev/null
           else
-            echo "Installing aws-ebs-csi-driver add-on."
-            aws eks create-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --region "${AWS_REGION}" --resolve-conflicts OVERWRITE >/dev/null
+            aws iam create-role \
+              --role-name "${EBS_CSI_ROLE_NAME}" \
+              --assume-role-policy-document file:///tmp/ebs-csi-trust-policy.json >/dev/null
           fi
 
-          aws eks wait addon-active --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --region "${AWS_REGION}" || true
-          kubectl -n kube-system rollout status deployment/ebs-csi-controller --timeout=300s
+          aws iam attach-role-policy \
+            --role-name "${EBS_CSI_ROLE_NAME}" \
+            --policy-arn "${EBS_POLICY_ARN}" >/dev/null || true
+
+          EBS_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${EBS_CSI_ROLE_NAME}"
+          ADDON_STATUS="$(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --region "${AWS_REGION}" --query 'addon.status' --output text 2>/dev/null || true)"
+
+          if [ -z "${ADDON_STATUS}" ] || [ "${ADDON_STATUS}" = "None" ]; then
+            echo "Installing aws-ebs-csi-driver add-on."
+            aws eks create-addon \
+              --cluster-name "${CLUSTER_NAME}" \
+              --addon-name aws-ebs-csi-driver \
+              --region "${AWS_REGION}" \
+              --service-account-role-arn "${EBS_ROLE_ARN}" \
+              --resolve-conflicts OVERWRITE >/dev/null
+          elif [ "${ADDON_STATUS}" = "CREATE_FAILED" ] || [ "${ADDON_STATUS}" = "DEGRADED" ] || [ "${ADDON_STATUS}" = "DELETE_FAILED" ] || [ "${ADDON_STATUS}" = "UPDATE_FAILED" ]; then
+            echo "aws-ebs-csi-driver is ${ADDON_STATUS}; deleting and recreating."
+            aws eks delete-addon \
+              --cluster-name "${CLUSTER_NAME}" \
+              --addon-name aws-ebs-csi-driver \
+              --region "${AWS_REGION}" >/dev/null || true
+            aws eks wait addon-deleted \
+              --cluster-name "${CLUSTER_NAME}" \
+              --addon-name aws-ebs-csi-driver \
+              --region "${AWS_REGION}" || true
+            aws eks create-addon \
+              --cluster-name "${CLUSTER_NAME}" \
+              --addon-name aws-ebs-csi-driver \
+              --region "${AWS_REGION}" \
+              --service-account-role-arn "${EBS_ROLE_ARN}" \
+              --resolve-conflicts OVERWRITE >/dev/null
+          else
+            echo "aws-ebs-csi-driver is ${ADDON_STATUS}; updating add-on."
+            aws eks update-addon \
+              --cluster-name "${CLUSTER_NAME}" \
+              --addon-name aws-ebs-csi-driver \
+              --region "${AWS_REGION}" \
+              --service-account-role-arn "${EBS_ROLE_ARN}" \
+              --resolve-conflicts OVERWRITE >/dev/null
+          fi
+
+          if ! aws eks wait addon-active --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --region "${AWS_REGION}"; then
+            echo "EBS CSI add-on did not become ACTIVE."
+            show_ebs_debug
+            exit 1
+          fi
+
+          if ! kubectl -n kube-system rollout status deployment/ebs-csi-controller --timeout=600s; then
+            echo "EBS CSI controller deployment rollout failed."
+            show_ebs_debug
+            exit 1
+          fi
 
       - name: Render manifests
         run: |
