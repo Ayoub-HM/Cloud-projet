@@ -697,6 +697,9 @@ jobs:
             echo "=== EBS CSI deployment (kube-system) ==="
             kubectl -n kube-system get deployment ebs-csi-controller -o wide || true
             kubectl -n kube-system describe deployment ebs-csi-controller || true
+            kubectl -n kube-system get daemonset ebs-csi-node -o wide || true
+            kubectl -n kube-system describe daemonset ebs-csi-node || true
+            kubectl get csinode || true
             echo "=== EBS CSI pods (kube-system) ==="
             kubectl -n kube-system get pods -l app.kubernetes.io/name=aws-ebs-csi-driver -o wide || true
             kubectl -n kube-system describe pods -l app.kubernetes.io/name=aws-ebs-csi-driver || true
@@ -792,6 +795,12 @@ jobs:
             exit 1
           fi
 
+          if ! kubectl -n kube-system rollout status daemonset/ebs-csi-node --timeout=600s; then
+            echo "EBS CSI node daemonset rollout failed."
+            show_ebs_debug
+            exit 1
+          fi
+
       - name: Render manifests
         run: |
           set -euo pipefail
@@ -875,9 +884,20 @@ jobs:
           kubectl apply -f rendered/02-postgres-pvc.yaml
           kubectl apply -f rendered/03-postgres-deployment.yaml
           kubectl apply -f rendered/04-postgres-service.yaml
-          kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/postgres-data -n "${NS}" --timeout=300s || { show_debug; exit 1; }
-          kubectl rollout status deployment/postgres -n "${NS}" --timeout=900s || { show_debug; exit 1; }
-          kubectl wait --for=condition=Ready pod -l app=postgres -n "${NS}" --timeout=300s || { show_debug; exit 1; }
+
+          wait_postgres_ready() {
+            kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/postgres-data -n "${NS}" --timeout=600s
+            kubectl rollout status deployment/postgres -n "${NS}" --timeout=1200s
+            kubectl wait --for=condition=Ready pod -l app=postgres -n "${NS}" --timeout=600s
+          }
+
+          if ! wait_postgres_ready; then
+            echo "Postgres readiness checks failed on first attempt; showing debug and retrying once."
+            show_debug
+            kubectl rollout restart deployment/postgres -n "${NS}" || true
+            sleep 20
+            wait_postgres_ready || { show_debug; exit 1; }
+          fi
 
       - name: Apply remaining manifests
         run: kubectl apply -k rendered
@@ -915,7 +935,7 @@ jobs:
             kubectl logs -n "${NS}" -l app=postgres --all-containers --tail=200 || true
           }
 
-          kubectl rollout status deployment/postgres -n "${NS}" --timeout=900s || { show_debug; exit 1; }
+          kubectl rollout status deployment/postgres -n "${NS}" --timeout=1200s || { show_debug; exit 1; }
           kubectl rollout status deployment/appointments-api -n "${NS}" --timeout=600s || { show_debug; exit 1; }
           kubectl rollout status deployment/auth-api -n "${NS}" --timeout=600s || { show_debug; exit 1; }
           for i in $(seq 1 60); do
