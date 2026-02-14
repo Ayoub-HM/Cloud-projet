@@ -672,6 +672,32 @@ jobs:
         run: |
           kubectl get namespace ${{ steps.vars.outputs.namespace }} >/dev/null 2>&1 || kubectl create namespace ${{ steps.vars.outputs.namespace }}
 
+      - name: Create/update in-cluster secrets
+        run: |
+          set -euo pipefail
+          NS="${{ steps.vars.outputs.namespace }}"
+          DB_PASSWORD="${{ steps.vars.outputs.db_password }}"
+          JWT_SECRET="${{ steps.vars.outputs.auth_jwt_secret }}"
+
+          # Create secrets from pipeline-provided values instead of templating YAML to avoid
+          # YAML escaping issues and accidental placeholder deploys.
+          kubectl -n "${NS}" create secret generic postgres-secret \
+            --from-literal=POSTGRES_DB=demo \
+            --from-literal=POSTGRES_USER=demo \
+            --from-literal=POSTGRES_PASSWORD="${DB_PASSWORD}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl -n "${NS}" create secret generic appointments-secret \
+            --from-literal=DB_USER=demo \
+            --from-literal=DB_PASSWORD="${DB_PASSWORD}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl -n "${NS}" create secret generic auth-secret \
+            --from-literal=DB_USER=demo \
+            --from-literal=DB_PASSWORD="${DB_PASSWORD}" \
+            --from-literal=AUTH_JWT_SECRET="${JWT_SECRET}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Ensure test nodegroup capacity
         if: steps.vars.outputs.env_name == 'test'
         run: |
@@ -963,20 +989,19 @@ jobs:
       - name: Render manifests
         run: |
           set -euo pipefail
-          escape_for_sed() {
-            printf '%s' "$1" | sed -e 's/[\/&|]/\\&/g'
-          }
-
-          DB_PASSWORD_ESCAPED="$(escape_for_sed "${{ steps.vars.outputs.db_password }}")"
-          AUTH_JWT_SECRET_ESCAPED="$(escape_for_sed "${{ steps.vars.outputs.auth_jwt_secret }}")"
-
           rm -rf rendered
           cp -R k8s/eks rendered
+
+          # Secrets are created from GitHub Secrets in the pipeline. Remove secret manifests
+          # from the rendered kustomization so we don't risk applying placeholder values.
+          rm -f rendered/01-postgres-secret.yaml rendered/06-api-secret.yaml rendered/10-auth-secret.yaml
+          sed -i '/- 01-postgres-secret.yaml/d' rendered/kustomization.yaml
+          sed -i '/- 06-api-secret.yaml/d' rendered/kustomization.yaml
+          sed -i '/- 10-auth-secret.yaml/d' rendered/kustomization.yaml
+
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s/namespace: demo/namespace: ${{ steps.vars.outputs.namespace }}/g"
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__APPOINTMENTS_IMAGE__|${{ steps.images.outputs.appointments_image }}|g"
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__AUTH_IMAGE__|${{ steps.images.outputs.auth_image }}|g"
-          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__SET_IN_CLUSTER__|${DB_PASSWORD_ESCAPED}|g"
-          find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__AUTH_JWT_SECRET__|${AUTH_JWT_SECRET_ESCAPED}|g"
           find rendered -type f -name "*.yaml" -print0 | xargs -0 sed -i "s|__APPOINTMENTS_BASE_URL__|http://placeholder.local|g"
           if [ "${{ steps.vars.outputs.env_name }}" = "test" ]; then
             sed -i 's/replicas: 3/replicas: 1/g' rendered/07-api-deployment.yaml
@@ -1074,7 +1099,6 @@ jobs:
               kubectl delete pvc/postgres-data -n "${NS}" --wait=true || true
             fi
           fi
-          kubectl apply -f rendered/01-postgres-secret.yaml
           kubectl apply -f rendered/02-postgres-pvc.yaml
           kubectl apply -f rendered/04-postgres-service.yaml
           kubectl apply -f rendered/03-postgres-deployment.yaml

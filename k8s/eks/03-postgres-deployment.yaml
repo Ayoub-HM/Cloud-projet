@@ -23,6 +23,24 @@ spec:
       securityContext:
         fsGroup: 999
         fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        # CSI volume permission handling can vary by driver/version. This init container
+        # makes the PGDATA directory writable for the postgres user deterministically.
+        - name: init-pgdata-perms
+          image: public.ecr.aws/docker/library/postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              mkdir -p /var/lib/postgresql/data/pgdata
+              chown -R postgres:postgres /var/lib/postgresql/data/pgdata
+              chmod 700 /var/lib/postgresql/data/pgdata
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
       containers:
         - name: postgres
           image: public.ecr.aws/docker/library/postgres:16-alpine
