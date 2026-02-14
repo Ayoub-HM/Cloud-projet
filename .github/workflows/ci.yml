@@ -399,8 +399,11 @@ jobs:
             echo "node_min_size=2" >> "$GITHUB_OUTPUT"
             echo "node_max_size=4" >> "$GITHUB_OUTPUT"
           else
-            echo "node_desired_size=1" >> "$GITHUB_OUTPUT"
-            echo "node_min_size=1" >> "$GITHUB_OUTPUT"
+            # A single t3.small node only supports 11 pods and fills up quickly with
+            # system + add-on pods (coredns, EBS CSI, ALB controller, etc). Use 2 nodes
+            # in test to avoid "Too many pods" scheduling failures.
+            echo "node_desired_size=2" >> "$GITHUB_OUTPUT"
+            echo "node_min_size=2" >> "$GITHUB_OUTPUT"
             echo "node_max_size=2" >> "$GITHUB_OUTPUT"
           fi
 
@@ -704,7 +707,7 @@ jobs:
           set -euo pipefail
           CLUSTER_NAME="${{ steps.cluster.outputs.cluster_name }}"
           NODEGROUP_NAME="cloud-projet-${{ steps.vars.outputs.env_name }}-ng"
-          TARGET_NODES=1
+          TARGET_NODES=2
 
           MIN_SIZE="$(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" --nodegroup-name "${NODEGROUP_NAME}" --region "${AWS_REGION}" --query 'nodegroup.scalingConfig.minSize' --output text)"
           MAX_SIZE="$(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" --nodegroup-name "${NODEGROUP_NAME}" --region "${AWS_REGION}" --query 'nodegroup.scalingConfig.maxSize' --output text)"
@@ -1120,6 +1123,14 @@ jobs:
             echo "rendered/02-postgres-pvc.yaml must use storageClassName: ${SC_NAME}"
             grep -n "storageClassName" rendered/02-postgres-pvc.yaml || true
             exit 1
+          fi
+
+          if [ "${ENV_NAME}" = "test" ] && kubectl get pvc/postgres-data -n "${NS}" >/dev/null 2>&1; then
+            # In CI test, we prefer a deterministic fresh DB over preserving state. Recreating the PVC
+            # avoids being stuck with a Bound EBS volume in an AZ where the only node is already at maxPods.
+            echo "Test env: recreating pvc/postgres-data for a fresh, schedulable Postgres volume."
+            kubectl delete deployment/postgres -n "${NS}" --ignore-not-found=true --wait=true --timeout=120s || true
+            kubectl delete pvc/postgres-data -n "${NS}" --wait=true --timeout=180s || true
           fi
 
           if kubectl get pvc/postgres-data -n "${NS}" >/dev/null 2>&1; then
