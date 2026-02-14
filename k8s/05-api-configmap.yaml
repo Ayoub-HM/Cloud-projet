@@ -4,5 +4,5 @@ metadata:
   name: appointments-config
   namespace: demo
 data:
-  DB_URL: jdbc:postgresql://postgres:5432/demo
+  DB_URL: jdbc:postgresql://postgres:5432/appointmentsdb
   JPA_DDL_AUTO: validate

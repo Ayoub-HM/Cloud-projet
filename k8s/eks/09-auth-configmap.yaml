@@ -4,7 +4,7 @@ metadata:
   name: auth-config
   namespace: demo
 data:
-  DB_URL: jdbc:postgresql://postgres:5432/demo
+  DB_URL: jdbc:postgresql://postgres:5432/authdb
   JPA_DDL_AUTO: validate
   AUTH_TOKEN_ISSUER: auth-service
   AUTH_TOKEN_TTL_SECONDS: "3600"

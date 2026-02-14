@@ -685,7 +685,7 @@ jobs:
           # Create secrets from pipeline-provided values instead of templating YAML to avoid
           # YAML escaping issues and accidental placeholder deploys.
           kubectl -n "${NS}" create secret generic postgres-secret \
-            --from-literal=POSTGRES_DB=demo \
+            --from-literal=POSTGRES_DB=appointmentsdb \
             --from-literal=POSTGRES_USER=demo \
             --from-literal=POSTGRES_PASSWORD="${DB_PASSWORD}" \
             --dry-run=client -o yaml | kubectl apply -f -
@@ -1094,6 +1094,11 @@ jobs:
             last_report=0
           }
 
+          ensure_db() {
+            local db="$1"
+            kubectl exec -n "${NS}" deployment/postgres -- sh -c "set -e; export PGPASSWORD=\"\\$POSTGRES_PASSWORD\"; psql -U \"\\$POSTGRES_USER\" -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='${db}'\" | grep -q 1 || psql -U \"\\$POSTGRES_USER\" -d postgres -c \"CREATE DATABASE \\\"${db}\\\"\""
+          }
+
           kubectl get namespace "${NS}" >/dev/null
 
           if kubectl get storageclass "${SC_NAME}" >/dev/null 2>&1; then
@@ -1198,6 +1203,9 @@ jobs:
 
             if [ "${pvc_phase}" = "Bound" ] && [ "${ready}" = "True" ]; then
               echo "Postgres is Ready."
+              echo "Ensuring application databases exist..."
+              ensure_db "appointmentsdb"
+              ensure_db "authdb"
               exit 0
             fi
 
@@ -1209,6 +1217,13 @@ jobs:
 
       - name: Apply remaining manifests
         run: kubectl apply -k rendered
+
+      - name: Restart appointments to pick up config changes
+        run: |
+          set -euo pipefail
+          NS="${{ steps.vars.outputs.namespace }}"
+          kubectl rollout restart deployment/appointments-api -n "${NS}"
+          kubectl rollout status deployment/appointments-api -n "${NS}" --timeout=600s
 
       - name: Wait ingress and patch auth base URL
         run: |
@@ -1258,4 +1273,5 @@ jobs:
           fi
           kubectl patch configmap auth-config -n "${NS}" --type merge -p "{\"data\":{\"AUTH_APP_BASE_URL\":\"http://$ALB_HOST\"}}"
           kubectl rollout restart deployment/auth-api -n "${NS}"
+          kubectl rollout status deployment/auth-api -n "${NS}" --timeout=600s || { show_debug; exit 1; }
           echo "Application URL: http://$ALB_HOST"
