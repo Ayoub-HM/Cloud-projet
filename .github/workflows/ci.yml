@@ -286,7 +286,13 @@ jobs:
           fi
 
   terraform_infra:
-    if: ${{ needs.deploy_precheck.outputs.deploy_enabled == 'true' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.infra == 'true') }}
+    if: ${{ needs.deploy_precheck.outputs.deploy_enabled == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+        needs.changes.outputs.app == 'true' ||
+        needs.changes.outputs.auth == 'true' ||
+        needs.changes.outputs.k8s == 'true' ||
+        needs.changes.outputs.infra == 'true' ||
+        needs.changes.outputs.workflows == 'true') }}
     needs: [changes, deploy_precheck]
     runs-on: ubuntu-latest
     concurrency:
@@ -548,7 +554,7 @@ jobs:
         needs.changes.outputs.k8s == 'true' ||
         needs.changes.outputs.infra == 'true' ||
         needs.changes.outputs.workflows == 'true') &&
-      (needs.changes.outputs.infra != 'true' || needs.terraform_infra.result == 'success') &&
+      needs.terraform_infra.result == 'success' &&
       ((needs.changes.outputs.app != 'true' && needs.changes.outputs.auth != 'true') || needs.image_security.result == 'success') }}
     needs: [changes, deploy_precheck, terraform_infra, image_security]
     runs-on: ubuntu-latest
@@ -701,13 +707,52 @@ jobs:
             --from-literal=AUTH_JWT_SECRET="${JWT_SECRET}" \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Ensure test nodegroup capacity
-        if: steps.vars.outputs.env_name == 'test'
+      - name: Validate in-cluster secret values
+        run: |
+          set -euo pipefail
+          NS="${{ steps.vars.outputs.namespace }}"
+
+          decode_secret_key() {
+            local name="$1"
+            local key="$2"
+            kubectl -n "${NS}" get secret "${name}" -o "jsonpath={.data.${key}}" | base64 -d
+          }
+
+          POSTGRES_DB="$(decode_secret_key postgres-secret POSTGRES_DB)"
+          POSTGRES_USER="$(decode_secret_key postgres-secret POSTGRES_USER)"
+          POSTGRES_PASSWORD="$(decode_secret_key postgres-secret POSTGRES_PASSWORD)"
+          APP_DB_USER="$(decode_secret_key appointments-secret DB_USER)"
+          AUTH_DB_USER="$(decode_secret_key auth-secret DB_USER)"
+          AUTH_JWT_SECRET="$(decode_secret_key auth-secret AUTH_JWT_SECRET)"
+
+          if [ "${POSTGRES_DB}" != "appointmentsdb" ]; then
+            echo "postgres-secret POSTGRES_DB must be 'appointmentsdb', got '${POSTGRES_DB}'"
+            exit 1
+          fi
+          if [ "${POSTGRES_USER}" != "demo" ] || [ "${APP_DB_USER}" != "demo" ] || [ "${AUTH_DB_USER}" != "demo" ]; then
+            echo "DB users must all be 'demo' in postgres-secret/appointments-secret/auth-secret."
+            exit 1
+          fi
+          if [ -z "${POSTGRES_PASSWORD}" ] || [ "${#POSTGRES_PASSWORD}" -lt 8 ]; then
+            echo "postgres-secret POSTGRES_PASSWORD is empty or too short."
+            exit 1
+          fi
+          if [ -z "${AUTH_JWT_SECRET}" ] || [ "${#AUTH_JWT_SECRET}" -lt 32 ]; then
+            echo "auth-secret AUTH_JWT_SECRET must be at least 32 characters."
+            exit 1
+          fi
+
+      - name: Ensure nodegroup capacity and ready nodes
         run: |
           set -euo pipefail
           CLUSTER_NAME="${{ steps.cluster.outputs.cluster_name }}"
           NODEGROUP_NAME="cloud-projet-${{ steps.vars.outputs.env_name }}-ng"
           TARGET_NODES=2
+
+          aws eks wait nodegroup-active \
+            --cluster-name "${CLUSTER_NAME}" \
+            --nodegroup-name "${NODEGROUP_NAME}" \
+            --region "${AWS_REGION}"
 
           MIN_SIZE="$(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" --nodegroup-name "${NODEGROUP_NAME}" --region "${AWS_REGION}" --query 'nodegroup.scalingConfig.minSize' --output text)"
           MAX_SIZE="$(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" --nodegroup-name "${NODEGROUP_NAME}" --region "${AWS_REGION}" --query 'nodegroup.scalingConfig.maxSize' --output text)"
@@ -730,6 +775,7 @@ jobs:
               --region "${AWS_REGION}"
           fi
 
+          READY_NODES=0
           for i in $(seq 1 30); do
             READY_NODES="$(kubectl get nodes --no-headers 2>/dev/null | grep -c ' Ready ')"
             if [ "${READY_NODES}" -ge "${TARGET_NODES}" ]; then
@@ -876,11 +922,21 @@ jobs:
             exit 1
           fi
 
-      - name: Resolve image refs (build only when code changed)
+      - name: Verify core EKS add-ons are ready
+        run: |
+          set -euo pipefail
+          kubectl -n kube-system rollout status deployment/coredns --timeout=600s
+          kubectl -n kube-system rollout status daemonset/aws-node --timeout=600s
+          kubectl -n kube-system rollout status daemonset/kube-proxy --timeout=600s
+
+      - name: Resolve image refs (rebuild on deploy-impacting changes)
         id: images
         env:
           APP_CHANGED: ${{ needs.changes.outputs.app }}
           AUTH_CHANGED: ${{ needs.changes.outputs.auth }}
+          K8S_CHANGED: ${{ needs.changes.outputs.k8s }}
+          INFRA_CHANGED: ${{ needs.changes.outputs.infra }}
+          WORKFLOWS_CHANGED: ${{ needs.changes.outputs.workflows }}
         run: |
           set -euo pipefail
 
@@ -896,13 +952,19 @@ jobs:
           BUILD_APPOINTMENTS=false
           BUILD_AUTH=false
 
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [ "${APP_CHANGED}" = "true" ]; then
+          FORCE_REBUILD=false
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [ "${K8S_CHANGED}" = "true" ] || [ "${INFRA_CHANGED}" = "true" ] || [ "${WORKFLOWS_CHANGED}" = "true" ]; then
+            # Rebuild on deploy-related changes so we never roll out stale images with stale runtime config.
+            FORCE_REBUILD=true
+          fi
+
+          if [ "${FORCE_REBUILD}" = "true" ] || [ "${APP_CHANGED}" = "true" ]; then
             BUILD_APPOINTMENTS=true
           else
             APPOINTMENTS_TAG="latest"
           fi
 
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [ "${AUTH_CHANGED}" = "true" ]; then
+          if [ "${FORCE_REBUILD}" = "true" ] || [ "${AUTH_CHANGED}" = "true" ]; then
             BUILD_AUTH=true
           else
             AUTH_TAG="latest"
@@ -995,9 +1057,10 @@ jobs:
           rm -rf rendered
           cp -R k8s/eks rendered
 
-          # Secrets are created from GitHub Secrets in the pipeline. Remove secret manifests
-          # from the rendered kustomization so we don't risk applying placeholder values.
-          rm -f rendered/01-postgres-secret.yaml rendered/06-api-secret.yaml rendered/10-auth-secret.yaml
+          # Namespace and secrets are created from pipeline values. Remove static manifests so we
+          # don't apply stale names/placeholders.
+          rm -f rendered/00-namespace.yaml rendered/01-postgres-secret.yaml rendered/06-api-secret.yaml rendered/10-auth-secret.yaml
+          sed -i '/- 00-namespace.yaml/d' rendered/kustomization.yaml
           sed -i '/- 01-postgres-secret.yaml/d' rendered/kustomization.yaml
           sed -i '/- 06-api-secret.yaml/d' rendered/kustomization.yaml
           sed -i '/- 10-auth-secret.yaml/d' rendered/kustomization.yaml
@@ -1102,6 +1165,13 @@ jobs:
           }
 
           kubectl get namespace "${NS}" >/dev/null
+
+          POSTGRES_DB_FROM_SECRET="$(kubectl get secret/postgres-secret -n "${NS}" -o jsonpath='{.data.POSTGRES_DB}' 2>/dev/null | base64 -d || true)"
+          POSTGRES_USER_FROM_SECRET="$(kubectl get secret/postgres-secret -n "${NS}" -o jsonpath='{.data.POSTGRES_USER}' 2>/dev/null | base64 -d || true)"
+          if [ "${POSTGRES_DB_FROM_SECRET}" != "appointmentsdb" ] || [ "${POSTGRES_USER_FROM_SECRET}" != "demo" ]; then
+            echo "postgres-secret values are invalid: POSTGRES_DB='${POSTGRES_DB_FROM_SECRET}', POSTGRES_USER='${POSTGRES_USER_FROM_SECRET}'"
+            exit 1
+          fi
 
           if kubectl get storageclass "${SC_NAME}" >/dev/null 2>&1; then
             PROVISIONER="$(kubectl get storageclass "${SC_NAME}" -o jsonpath='{.provisioner}' || true)"
@@ -1220,12 +1290,29 @@ jobs:
       - name: Apply remaining manifests
         run: kubectl apply -k rendered
 
-      - name: Restart appointments to pick up config changes
+      - name: Validate DB config and restart application deployments
         run: |
           set -euo pipefail
           NS="${{ steps.vars.outputs.namespace }}"
+          EXPECTED_APPOINTMENTS_DB_URL="jdbc:postgresql://postgres:5432/appointmentsdb"
+          EXPECTED_AUTH_DB_URL="jdbc:postgresql://postgres:5432/authdb"
+
+          APPOINTMENTS_DB_URL="$(kubectl get configmap appointments-config -n "${NS}" -o jsonpath='{.data.DB_URL}' || true)"
+          AUTH_DB_URL="$(kubectl get configmap auth-config -n "${NS}" -o jsonpath='{.data.DB_URL}' || true)"
+
+          if [ "${APPOINTMENTS_DB_URL}" != "${EXPECTED_APPOINTMENTS_DB_URL}" ]; then
+            echo "appointments-config DB_URL mismatch. expected='${EXPECTED_APPOINTMENTS_DB_URL}' actual='${APPOINTMENTS_DB_URL}'"
+            exit 1
+          fi
+          if [ "${AUTH_DB_URL}" != "${EXPECTED_AUTH_DB_URL}" ]; then
+            echo "auth-config DB_URL mismatch. expected='${EXPECTED_AUTH_DB_URL}' actual='${AUTH_DB_URL}'"
+            exit 1
+          fi
+
           kubectl rollout restart deployment/appointments-api -n "${NS}"
+          kubectl rollout restart deployment/auth-api -n "${NS}"
           kubectl rollout status deployment/appointments-api -n "${NS}" --timeout=600s
+          kubectl rollout status deployment/auth-api -n "${NS}" --timeout=600s
 
       - name: Wait ingress and patch auth base URL
         run: |
