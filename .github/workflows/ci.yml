@@ -645,19 +645,6 @@ jobs:
       - name: Setup Helm
         uses: azure/setup-helm@v4
 
-      - name: Install eksctl
-        run: |
-          set -euo pipefail
-          if command -v eksctl >/dev/null 2>&1; then
-            echo "eksctl already installed"
-            exit 0
-          fi
-          curl -fsSL --retry 3 --retry-delay 2 \
-            "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" \
-            | tar xz -C /tmp
-          sudo mv /tmp/eksctl /usr/local/bin/eksctl
-          eksctl version
-
       - name: Ensure AWS Load Balancer Controller
         run: |
           set -euo pipefail
@@ -666,6 +653,12 @@ jobs:
             echo "aws-load-balancer-controller already present."
           else
             echo "aws-load-balancer-controller missing; installing..."
+            if ! command -v eksctl >/dev/null 2>&1; then
+              curl -fsSL --retry 3 --retry-delay 2 \
+                "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" \
+                | tar xz -C /tmp
+              sudo mv /tmp/eksctl /usr/local/bin/eksctl
+            fi
             VPC_ID="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.resourcesVpcConfig.vpcId' --output text)"
             if [ -z "${VPC_ID}" ] || [ "${VPC_ID}" = "None" ]; then
               echo "Unable to resolve VPC ID for cluster ${CLUSTER_NAME}"
@@ -674,7 +667,7 @@ jobs:
             chmod +x scripts/aws/install-alb-controller.sh
             ./scripts/aws/install-alb-controller.sh "${CLUSTER_NAME}" "${AWS_REGION}" "${VPC_ID}"
           fi
-          kubectl rollout status deployment/aws-load-balancer-controller -n kube-system --timeout=300s
+          kubectl rollout status deployment/aws-load-balancer-controller -n kube-system --timeout=600s
           kubectl get ingressclass alb >/dev/null 2>&1 || echo "Warning: ingressclass 'alb' not found; relying on legacy annotation."
 
       - name: Ensure namespace exists

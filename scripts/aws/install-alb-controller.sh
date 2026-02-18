@@ -11,17 +11,23 @@ REGION="$2"
 VPC_ID="$3"
 
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+POLICY_NAME="AWSLoadBalancerControllerIAMPolicy-${CLUSTER_NAME}"
+POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${POLICY_NAME}"
 
 curl -fsSL -o iam_policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/main/docs/install/iam_policy.json
-aws iam create-policy \
-  --policy-name "AWSLoadBalancerControllerIAMPolicy-${CLUSTER_NAME}" \
-  --policy-document file://iam_policy.json || true
+if aws iam get-policy --policy-arn "${POLICY_ARN}" >/dev/null 2>&1; then
+  echo "IAM policy already exists: ${POLICY_NAME}"
+else
+  aws iam create-policy \
+    --policy-name "${POLICY_NAME}" \
+    --policy-document file://iam_policy.json >/dev/null
+fi
 
 eksctl create iamserviceaccount \
   --cluster "${CLUSTER_NAME}" \
   --namespace kube-system \
   --name aws-load-balancer-controller \
-  --attach-policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/AWSLoadBalancerControllerIAMPolicy-${CLUSTER_NAME}" \
+  --attach-policy-arn "${POLICY_ARN}" \
   --override-existing-serviceaccounts \
   --approve
 
@@ -34,6 +40,7 @@ helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-contro
   --set serviceAccount.create=false \
   --set serviceAccount.name=aws-load-balancer-controller \
   --set region="${REGION}" \
-  --set vpcId="${VPC_ID}"
+  --set vpcId="${VPC_ID}" \
+  --set replicaCount=1
 
 echo "AWS Load Balancer Controller installed."
