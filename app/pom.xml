@@ -101,8 +101,8 @@
 
    <!-- Prometheus--> 
   <dependency>
-  <groupId>io.micrometer</groupId>
-  <artifactId>micrometer-registry-prometheus</artifactId>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-registry-prometheus</artifactId>
   </dependency>
 
   <build>
