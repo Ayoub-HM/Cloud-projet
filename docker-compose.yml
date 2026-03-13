@@ -36,6 +36,25 @@ services:
       - "8081:8081"
     depends_on:
       - db
+    prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  node-exporter:
+    image: prom/node-exporter
+    ports:
+      - "9100:9100"
+
 
 volumes:
   pgdata:
